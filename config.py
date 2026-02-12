@@ -14,14 +14,26 @@ class TelegramConfig(BaseSettings):
         extra="ignore",
     )
 
+    # Mode selection
+    local_mode: bool = Field(
+        default=False,
+        description="Use local OpenClaw gateway via 'openclaw agent' CLI instead of Telegram",
+    )
+
     # Telegram settings
     telegram_bot_token: str = Field(
-        ...,
-        description="Telegram bot token from BotFather",
+        default="",
+        description="Telegram bot token from BotFather (required for Telegram mode)",
     )
     openclaw_bot_username: str = Field(
         default="openclaw_bot",
         description="Username of the OpenClaw bot to interact with",
+    )
+
+    # Local mode settings
+    agent_id: str = Field(
+        default="main",
+        description="OpenClaw agent ID to use in local mode",
     )
 
     # Performance settings
@@ -49,6 +61,10 @@ class TelegramConfig(BaseSettings):
     )
 
     # Benchmark settings
+    timeout_multiplier: float = Field(
+        default=1.0,
+        description="Multiply all task timeouts by this factor (useful for slower systems)",
+    )
     max_concurrent_sessions: int = Field(
         default=10,
         description="Maximum concurrent sessions for benchmarking (async mode only)",

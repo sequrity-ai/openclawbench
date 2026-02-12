@@ -83,13 +83,18 @@ class FileValidator:
         error_message = None
 
         try:
-            # Look for CSV files in workspace
-            csv_files = list(workspace_dir.glob("*.csv"))
+            # Check for the specific expected file
+            csv_file = workspace_dir / "data.csv"
 
-            if not csv_files:
-                error_message = "No CSV file found"
-            else:
-                csv_file = csv_files[0]
+            if not csv_file.exists():
+                # Fall back to any CSV file
+                csv_files = list(workspace_dir.glob("*.csv"))
+                if not csv_files:
+                    error_message = "No CSV file found (expected data.csv)"
+                else:
+                    csv_file = csv_files[0]
+
+            if not error_message:
                 validation_details["csv_file"] = str(csv_file)
 
                 with open(csv_file, "r") as f:
@@ -173,33 +178,37 @@ class FileValidator:
                     content = report_file.read_text()
                     validation_details["file_content"] = content
 
-                    # Expected action items from notes.txt
+                    # Expected action items (name + task description)
                     expected_actions = [
-                        "Alice",  # Alice: Set up development environment
-                        "Bob",  # Bob: Create initial design mockups
-                        "Carol",  # Carol: Schedule follow-up meeting
+                        ("Alice", "development environment"),
+                        ("Bob", "design mockups"),
+                        ("Carol", "follow-up meeting"),
+                        ("Everyone", "requirements document"),
                     ]
 
+                    content_lower = content.lower()
                     found_actions = []
-                    for action in expected_actions:
-                        if action in content:
-                            found_actions.append(action)
-                            accuracy_score += 25.0
+                    for name, task_fragment in expected_actions:
+                        if name.lower() in content_lower and task_fragment in content_lower:
+                            found_actions.append(name)
 
                     validation_details["found_actions"] = found_actions
-                    validation_details["expected_actions"] = expected_actions
+                    validation_details["expected_count"] = len(expected_actions)
 
-                    # Check that non-action text is excluded (lower weight)
+                    # Score: 20% per found action item (max 80%)
+                    accuracy_score += len(found_actions) * 20.0
+
+                    # Bonus 20%: non-action text is excluded
                     non_action_terms = ["Discussion Points", "Next Steps", "Attendees"]
                     excluded_count = sum(1 for term in non_action_terms if term not in content)
-                    accuracy_score += (excluded_count / len(non_action_terms)) * 25.0
+                    accuracy_score += (excluded_count / len(non_action_terms)) * 20.0
 
                     validation_details["excluded_non_actions"] = excluded_count
 
-                    if accuracy_score >= 75.0:
+                    if len(found_actions) >= 3 and excluded_count >= 2:
                         success = True
-                        if len(found_actions) == len(expected_actions):
-                            accuracy_score = 100.0
+                    if len(found_actions) == len(expected_actions) and excluded_count == len(non_action_terms):
+                        accuracy_score = 100.0
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"

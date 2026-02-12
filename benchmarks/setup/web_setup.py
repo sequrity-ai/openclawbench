@@ -11,8 +11,8 @@ class WebSetup:
         """Initialize web setup with test URLs."""
         # Use stable, public URLs for testing
         self.wikipedia_url = "https://en.wikipedia.org/wiki/Python_(programming_language)"
-        self.github_repo_url = "https://github.com/hesamsheikh/awesome-openclaw-usecases"
-        self.search_topic = "OpenClaw AI agent features"
+        self.github_repo_url = "https://github.com/anthropics/anthropic-cookbook"
+        self.search_topic = "Python web frameworks comparison"
 
     def prepare_test_urls(self) -> dict[str, Any]:
         """Prepare test URLs and topics.
@@ -32,8 +32,8 @@ class WebSetup:
                 "has_founding_info": True,
             },
             "github_expected": {
-                "owner": "hesamsheikh",
-                "repo": "awesome-openclaw-usecases",
+                "owner": "anthropics",
+                "repo": "anthropic-cookbook",
                 "is_github": True,
             },
         }

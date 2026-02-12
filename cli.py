@@ -8,8 +8,11 @@ import sys
 from pathlib import Path
 
 from benchmark_runner import EXAMPLE_SCENARIOS, BenchmarkRunner, BenchmarkScenario
-from benchmarks.scenarios import FileScenario, WebScenario
+from benchmarks.base import CheckStatus
+from benchmarks.scenarios import SCENARIO_MAP
+from benchmarks.skill_checker import get_ready_skills
 from config import TelegramConfig, load_config
+from local_client import LocalClient
 from telegram_client import TelegramClient
 
 logger = logging.getLogger(__name__)
@@ -26,6 +29,30 @@ def setup_logging(verbose: bool = False) -> None:
         level=level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
+
+
+async def test_connection_local_async(config: TelegramConfig) -> bool:
+    """Test local gateway connection."""
+    try:
+        async with LocalClient(config) as client:
+            info = await client.get_me_async()
+            logger.info(f"Connected to local gateway: {info.get('status')}")
+            return True
+    except Exception as e:
+        logger.error(f"Local connection failed: {e}")
+        return False
+
+
+def test_connection_local_sync(config: TelegramConfig) -> bool:
+    """Test local gateway connection (sync)."""
+    try:
+        with LocalClient(config) as client:
+            info = client.get_me_sync()
+            logger.info(f"Connected to local gateway: {info.get('status')}")
+            return True
+    except Exception as e:
+        logger.error(f"Local connection failed: {e}")
+        return False
 
 
 async def test_connection_async(config: TelegramConfig) -> bool:
@@ -162,127 +189,153 @@ def run_benchmark_sync(
         print(f"\nResults exported to: {output_path}")
 
 
-async def run_benchmark_suite_async(config: TelegramConfig, args) -> None:
-    """Run benchmark suite asynchronously.
+def _build_scenarios(args, skip_missing: bool = True, local_mode: bool = True):
+    """Build scenario list, optionally skipping those with missing skills.
 
-    Args:
-        config: Telegram configuration
-        args: Command-line arguments
+    In Telegram mode, skill detection is unavailable so all scenarios are included
+    (missing skills will surface as task failures at runtime).
     """
-    async with TelegramClient(config) as client:
-        # Determine which scenarios to run
-        scenarios = []
-        if args.scenario == "file" or args.scenario == "all":
-            scenarios.append(FileScenario())
-        if args.scenario == "web" or args.scenario == "all":
-            scenarios.append(WebScenario())
+    ready_skills = get_ready_skills(local_mode=local_mode)
 
-        print(f"\n{'='*60}")
-        print(f"OpenClaw Benchmark Suite")
-        print(f"Running {len(scenarios)} scenario(s): {', '.join(s.name for s in scenarios)}")
-        print(f"Mode: {'Async' if config.async_mode else 'Sync'}")
-        print(f"Skip setup: {args.no_setup}")
-        print(f"{'='*60}\n")
+    if args.scenario == "all":
+        candidates = [cls() for cls in SCENARIO_MAP.values()]
+    else:
+        cls = SCENARIO_MAP.get(args.scenario)
+        if not cls:
+            raise ValueError(f"Unknown scenario: {args.scenario}")
+        candidates = [cls()]
 
+    scenarios = []
+    skipped = []
+
+    # If ready_skills is None (Telegram mode), we can't filter — run everything
+    if ready_skills is None:
+        return candidates, skipped
+
+    for scenario in candidates:
+        missing = [s for s in scenario.required_skills if s not in ready_skills]
+        if missing and skip_missing:
+            skipped.append((scenario.name, missing))
+        else:
+            scenarios.append(scenario)
+
+    return scenarios, skipped
+
+
+def _print_suite_header(config, scenarios, skipped, args):
+    """Print the benchmark suite header."""
+    mode = "local" if config.local_mode else ("async" if config.async_mode else "sync")
+
+    print(f"\n{'='*60}")
+    print("OpenClaw Benchmark Suite")
+    print(f"Mode: {mode}")
+    print(f"Running {len(scenarios)} scenario(s): {', '.join(s.name for s in scenarios)}")
+
+    if not config.local_mode:
+        print("Note: Skill detection unavailable in Telegram mode — all scenarios will run")
+
+    if skipped:
+        print(f"\nSkipped {len(skipped)} scenario(s) due to missing skills:")
+        for name, missing in skipped:
+            print(f"  - {name} (missing: {', '.join(missing)})")
+
+    print(f"{'='*60}\n")
+
+
+def _print_scenario_result(result, index, total):
+    """Print a single scenario result."""
+    passed = sum(1 for t in result.task_results if t.success)
+    print(f"\n{'-'*60}")
+    print(f"Scenario: {result.scenario_name}")
+    print(f"Duration: {result.total_duration:.2f}s")
+    print(f"Tasks passed: {passed}/{len(result.task_results)}")
+    print(f"Average accuracy: {result.average_accuracy:.1f}%")
+    print(f"Average latency: {result.average_latency:.2f}s")
+    print(f"{'-'*60}\n")
+
+
+def _export_results(config, all_results, output_path):
+    """Export results to JSON."""
+    export_data = {
+        "config": {
+            "async_mode": config.async_mode,
+            "local_mode": config.local_mode,
+        },
+        "scenarios": [result.to_dict() for result in all_results],
+        "summary": {
+            "total_scenarios": len(all_results),
+            "total_tasks": sum(len(r.task_results) for r in all_results),
+            "tasks_passed": sum(
+                sum(1 for t in r.task_results if t.success) for r in all_results
+            ),
+            "overall_accuracy": (
+                sum(r.average_accuracy for r in all_results) / len(all_results)
+                if all_results
+                else 0.0
+            ),
+        },
+    }
+
+    with open(output_path, "w") as f:
+        json.dump(export_data, f, indent=2)
+
+    print(f"\nResults exported to: {output_path}")
+
+
+async def run_benchmark_suite_async(config: TelegramConfig, args) -> None:
+    """Run benchmark suite asynchronously."""
+    scenarios, skipped = _build_scenarios(args, skip_missing=args.skip_missing, local_mode=config.local_mode)
+
+    if not scenarios:
+        print("\nNo scenarios to run (all skipped due to missing skills).")
+        return
+
+    _print_suite_header(config, scenarios, skipped, args)
+
+    client_cls = LocalClient if config.local_mode else TelegramClient
+    async with client_cls(config) as client:
         all_results = []
 
         for i, scenario in enumerate(scenarios, 1):
             print(f"\n[{i}/{len(scenarios)}] Running scenario: {scenario.name}")
             print(f"Description: {scenario.description}")
-            print(f"Required skills: {', '.join(scenario.required_skills)}\n")
+            skills_label = ", ".join(scenario.required_skills) or "(core tools only)"
+            print(f"Required skills: {skills_label}\n")
 
-            result = await scenario.run_async(client, args.chat_id, skip_setup=args.no_setup)
+            result = await scenario.run_async(client, args.chat_id, skip_setup=args.no_setup, timeout_multiplier=config.timeout_multiplier)
             all_results.append(result)
+            _print_scenario_result(result, i, len(scenarios))
 
-            # Print summary
-            print(f"\n{'-'*60}")
-            print(f"Scenario: {result.scenario_name}")
-            print(f"Duration: {result.total_duration:.2f}s")
-            print(f"Tasks passed: {sum(1 for t in result.task_results if t.success)}/{len(result.task_results)}")
-            print(f"Average accuracy: {result.average_accuracy:.1f}%")
-            print(f"Average latency: {result.average_latency:.2f}s")
-            print(f"{'-'*60}\n")
-
-        # Export results if requested
         if args.output:
-            export_data = {
-                "config": {
-                    "async_mode": config.async_mode,
-                    "openclaw_bot_username": config.openclaw_bot_username,
-                },
-                "scenarios": [result.to_dict() for result in all_results],
-                "summary": {
-                    "total_scenarios": len(all_results),
-                    "total_tasks": sum(len(r.task_results) for r in all_results),
-                    "tasks_passed": sum(sum(1 for t in r.task_results if t.success) for r in all_results),
-                    "overall_accuracy": sum(r.average_accuracy for r in all_results) / len(all_results) if all_results else 0.0,
-                }
-            }
-
-            with open(args.output, "w") as f:
-                json.dump(export_data, f, indent=2)
-
-            print(f"\nResults exported to: {args.output}")
+            _export_results(config, all_results, args.output)
 
 
 def run_benchmark_suite_sync(config: TelegramConfig, args) -> None:
-    """Run benchmark suite synchronously.
+    """Run benchmark suite synchronously."""
+    scenarios, skipped = _build_scenarios(args, skip_missing=args.skip_missing, local_mode=config.local_mode)
 
-    Args:
-        config: Telegram configuration
-        args: Command-line arguments
-    """
-    with TelegramClient(config) as client:
-        scenarios = []
-        if args.scenario == "file" or args.scenario == "all":
-            scenarios.append(FileScenario())
-        if args.scenario == "web" or args.scenario == "all":
-            scenarios.append(WebScenario())
+    if not scenarios:
+        print("\nNo scenarios to run (all skipped due to missing skills).")
+        return
 
-        print(f"\n{'='*60}")
-        print(f"OpenClaw Benchmark Suite")
-        print(f"Running {len(scenarios)} scenario(s): {', '.join(s.name for s in scenarios)}")
-        print(f"Mode: {'Async' if config.async_mode else 'Sync'}")
-        print(f"Skip setup: {args.no_setup}")
-        print(f"{'='*60}\n")
+    _print_suite_header(config, scenarios, skipped, args)
 
+    client_cls = LocalClient if config.local_mode else TelegramClient
+    with client_cls(config) as client:
         all_results = []
 
         for i, scenario in enumerate(scenarios, 1):
             print(f"\n[{i}/{len(scenarios)}] Running scenario: {scenario.name}")
             print(f"Description: {scenario.description}")
-            print(f"Required skills: {', '.join(scenario.required_skills)}\n")
+            skills_label = ", ".join(scenario.required_skills) or "(core tools only)"
+            print(f"Required skills: {skills_label}\n")
 
-            result = scenario.run_sync(client, args.chat_id, skip_setup=args.no_setup)
+            result = scenario.run_sync(client, args.chat_id, skip_setup=args.no_setup, timeout_multiplier=config.timeout_multiplier)
             all_results.append(result)
-
-            print(f"\n{'-'*60}")
-            print(f"Scenario: {result.scenario_name}")
-            print(f"Duration: {result.total_duration:.2f}s")
-            print(f"Tasks passed: {sum(1 for t in result.task_results if t.success)}/{len(result.task_results)}")
-            print(f"Average accuracy: {result.average_accuracy:.1f}%")
-            print(f"Average latency: {result.average_latency:.2f}s")
-            print(f"{'-'*60}\n")
+            _print_scenario_result(result, i, len(scenarios))
 
         if args.output:
-            export_data = {
-                "config": {
-                    "async_mode": config.async_mode,
-                    "openclaw_bot_username": config.openclaw_bot_username,
-                },
-                "scenarios": [result.to_dict() for result in all_results],
-                "summary": {
-                    "total_scenarios": len(all_results),
-                    "total_tasks": sum(len(r.task_results) for r in all_results),
-                    "tasks_passed": sum(sum(1 for t in r.task_results if t.success) for r in all_results),
-                    "overall_accuracy": sum(r.average_accuracy for r in all_results) / len(all_results) if all_results else 0.0,
-                }
-            }
-
-            with open(args.output, "w") as f:
-                json.dump(export_data, f, indent=2)
-
-            print(f"\nResults exported to: {args.output}")
+            _export_results(config, all_results, args.output)
 
 
 def main() -> int:
@@ -306,6 +359,11 @@ def main() -> int:
         help="Use sync mode (debugging)",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Use local OpenClaw gateway (no Telegram needed)",
+    )
 
     # Subcommands
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -336,15 +394,33 @@ def main() -> int:
 
     # Benchmark suite
     suite_parser = subparsers.add_parser("benchmark-suite", help="Run benchmark suite")
-    suite_parser.add_argument("chat_id", type=int, help="Chat ID for testing")
+    suite_parser.add_argument(
+        "chat_id",
+        type=int,
+        nargs="?",
+        default=0,
+        help="Chat ID for testing (not required in --local mode)",
+    )
     suite_parser.add_argument(
         "--scenario",
         type=str,
-        choices=["file", "web", "all"],
+        choices=["file", "web", "weather", "github", "image", "all"],
         default="all",
-        help="Scenario to run (file, web, or all)",
+        help="Scenario to run",
     )
     suite_parser.add_argument("--no-setup", action="store_true", help="Skip setup phase")
+    suite_parser.add_argument(
+        "--skip-missing",
+        action="store_true",
+        default=True,
+        help="Skip scenarios with missing skills (default: true)",
+    )
+    suite_parser.add_argument(
+        "--no-skip-missing",
+        dest="skip_missing",
+        action="store_false",
+        help="Fail instead of skipping scenarios with missing skills",
+    )
     suite_parser.add_argument(
         "--output", "-o", type=Path, help="Output path for results (JSON)"
     )
@@ -366,11 +442,21 @@ def main() -> int:
     if hasattr(args, "async_mode") and args.async_mode is not None:
         config.async_mode = args.async_mode
 
-    logger.info(f"Running in {'async' if config.async_mode else 'sync'} mode")
+    # Override local mode if --local flag is set
+    if hasattr(args, "local") and args.local:
+        config.local_mode = True
+
+    mode_label = "local" if config.local_mode else ("async" if config.async_mode else "sync")
+    logger.info(f"Running in {mode_label} mode")
 
     # Handle commands
     if args.command == "test":
-        if config.async_mode:
+        if config.local_mode:
+            if config.async_mode:
+                success = asyncio.run(test_connection_local_async(config))
+            else:
+                success = test_connection_local_sync(config)
+        elif config.async_mode:
             success = asyncio.run(test_connection_async(config))
         else:
             success = test_connection_sync(config)
@@ -406,15 +492,43 @@ def main() -> int:
             return 1
 
     elif args.command == "list-scenarios":
+        ready_skills = get_ready_skills(local_mode=config.local_mode)
+
         print("\nAvailable Benchmark Scenarios:")
+        print(f"{'='*60}")
+
+        for name, cls in SCENARIO_MAP.items():
+            scenario = cls()
+            if ready_skills is None:
+                status = "UNKNOWN (Telegram mode — skill detection unavailable)"
+            else:
+                missing = [s for s in scenario.required_skills if s not in ready_skills]
+                status = "READY" if not missing else f"MISSING: {', '.join(missing)}"
+
+            print(f"\n  {name}")
+            print(f"    Name: {scenario.name}")
+            print(f"    Description: {scenario.description}")
+            skills_label = ", ".join(scenario.required_skills) or "(core tools only)"
+            print(f"    Required skills: {skills_label}")
+            print(f"    Tasks: {len(scenario.tasks)}")
+            print(f"    Status: {status}")
+
+        print(f"\n{'='*60}")
+        if ready_skills is None:
+            print("Skill detection unavailable in Telegram mode (cannot query remote bot)")
+        else:
+            print(f"Ready skills: {', '.join(sorted(ready_skills))}")
+
+        # Also show legacy scenarios
+        print("\n\nLegacy benchmark scenarios (for 'benchmark' command):")
         for i, scenario in enumerate(EXAMPLE_SCENARIOS):
-            print(f"\n{i}. {scenario.name}")
-            print(f"   Type: {scenario.benchmark_type.value}")
-            print(f"   Messages: {len(scenario.messages)}")
-            print(f"   Sessions: {scenario.num_sessions}")
+            print(f"  {i}. {scenario.name} ({scenario.benchmark_type.value})")
         return 0
 
     elif args.command == "benchmark-suite":
+        if not config.local_mode and not args.chat_id:
+            logger.error("chat_id is required in Telegram mode (use --local to skip)")
+            return 1
         try:
             if config.async_mode:
                 asyncio.run(run_benchmark_suite_async(config, args))

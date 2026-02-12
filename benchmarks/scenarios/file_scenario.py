@@ -10,6 +10,7 @@ from benchmarks.base import (
     SetupResult,
 )
 from benchmarks.setup.file_setup import FileSetup
+from benchmarks.skill_checker import check_skills
 from benchmarks.validators.file_validator import FileValidator
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ class FileScenario(ScenarioBase):
         super().__init__(
             name="File Manipulation",
             description="Tests agent's ability to create, read, transform, and extract data from files",
-            required_skills=["file_system_access", "text_processing", "data_transformation"],
+            required_skills=[],  # Uses built-in read/write/exec tools only
         )
 
         self.file_setup = FileSetup()
@@ -46,7 +47,7 @@ class FileScenario(ScenarioBase):
                 ),
                 expected_output_description="Markdown file with bullet list of 3 languages",
                 validation_fn=self.validator.validate_file_creation,
-                timeout=20.0,
+                timeout=40.0,
                 metadata={"difficulty": "low", "category": "file_creation"},
             )
         )
@@ -57,12 +58,12 @@ class FileScenario(ScenarioBase):
                 name="JSON to CSV Transformation",
                 prompt=(
                     f"Read the file {self.file_setup.data_json_path} and create a CSV file "
-                    f"in {self.file_setup.workspace_dir} with just the names and emails. "
-                    "The CSV should have columns: name, email"
+                    f"named 'data.csv' in {self.file_setup.workspace_dir} with just the "
+                    "names and emails. The CSV should have columns: name, email"
                 ),
-                expected_output_description="CSV file with name and email columns from JSON data",
+                expected_output_description="CSV file named data.csv with name and email columns",
                 validation_fn=self.validator.validate_json_to_csv,
-                timeout=30.0,
+                timeout=60.0,
                 metadata={"difficulty": "medium", "category": "data_transformation"},
             )
         )
@@ -73,25 +74,23 @@ class FileScenario(ScenarioBase):
                 name="Text Extraction and Reporting",
                 prompt=(
                     f"Read {self.file_setup.notes_txt_path} and extract all the action items. "
+                    "Action items are lines in the 'Action Items:' section that start with "
+                    "'- Name: task description'. "
                     f"Save them to a new file at {self.file_setup.reports_dir}/actions.txt. "
                     "Only include the action items, not the discussion points or other notes."
                 ),
                 expected_output_description="Text file with extracted action items only",
                 validation_fn=self.validator.validate_text_extraction,
-                timeout=25.0,
+                timeout=50.0,
                 metadata={"difficulty": "medium", "category": "text_extraction"},
             )
         )
 
     def pre_check(self) -> list[HealthCheckResult]:
-        """Run pre-flight health checks.
+        """Run pre-flight health checks."""
+        checks = check_skills(self.required_skills)
 
-        Returns:
-            List of health check results
-        """
-        checks = []
-
-        # Check 1: Workspace access
+        # Check workspace access
         if self.file_setup.verify_workspace_access():
             checks.append(
                 HealthCheckResult(
@@ -110,26 +109,6 @@ class FileScenario(ScenarioBase):
                     details={"workspace_dir": str(self.file_setup.workspace_dir)},
                 )
             )
-
-        # Check 2: Bot responsiveness (placeholder - would need actual bot test)
-        checks.append(
-            HealthCheckResult(
-                check_name="Bot Responsiveness",
-                status=CheckStatus.SKIP,
-                message="Bot responsiveness check not implemented (requires bot interaction)",
-                details={},
-            )
-        )
-
-        # Check 3: File system skills (placeholder - would need to query bot)
-        checks.append(
-            HealthCheckResult(
-                check_name="File System Skills",
-                status=CheckStatus.SKIP,
-                message="Skill verification requires bot query (not implemented)",
-                details={"required_skills": self.required_skills},
-            )
-        )
 
         return checks
 

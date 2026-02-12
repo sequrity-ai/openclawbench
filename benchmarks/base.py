@@ -153,6 +153,18 @@ class BenchmarkTask:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+def _create_session(client: Any, chat_id: int) -> Any:
+    """Create the appropriate session type based on the client."""
+    from local_client import LocalClient, LocalSession
+
+    if isinstance(client, LocalClient):
+        return LocalSession(client, chat_id)
+
+    from telegram_client import TelegramSession
+
+    return TelegramSession(client, chat_id)
+
+
 class ScenarioBase(ABC):
     """Base class for benchmark scenarios."""
 
@@ -205,7 +217,7 @@ class ScenarioBase(ABC):
         self.tasks.append(task)
 
     async def run_async(
-        self, client: Any, chat_id: int, skip_setup: bool = False
+        self, client: Any, chat_id: int, skip_setup: bool = False, timeout_multiplier: float = 1.0
     ) -> ScenarioResult:
         """Run the scenario asynchronously.
 
@@ -213,6 +225,7 @@ class ScenarioBase(ABC):
             client: Telegram client
             chat_id: Chat ID to use
             skip_setup: Skip setup phase
+            timeout_multiplier: Multiply all task timeouts by this factor
 
         Returns:
             Scenario result
@@ -246,14 +259,12 @@ class ScenarioBase(ABC):
             task_start = time.time()
 
             try:
-                # Import here to avoid circular dependency
-                from telegram_client import TelegramSession
-
-                session = TelegramSession(client, chat_id)
+                session = _create_session(client, chat_id)
 
                 # Send prompt and wait for response
+                effective_timeout = task.timeout * timeout_multiplier
                 response = await session.send_message_async(
-                    task.prompt, wait_for_response=True, timeout=task.timeout
+                    task.prompt, wait_for_response=True, timeout=effective_timeout
                 )
 
                 task_latency = time.time() - task_start
@@ -324,13 +335,14 @@ class ScenarioBase(ABC):
 
         return result
 
-    def run_sync(self, client: Any, chat_id: int, skip_setup: bool = False) -> ScenarioResult:
+    def run_sync(self, client: Any, chat_id: int, skip_setup: bool = False, timeout_multiplier: float = 1.0) -> ScenarioResult:
         """Run the scenario synchronously.
 
         Args:
             client: Telegram client
             chat_id: Chat ID to use
             skip_setup: Skip setup phase
+            timeout_multiplier: Multiply all task timeouts by this factor
 
         Returns:
             Scenario result
@@ -363,12 +375,11 @@ class ScenarioBase(ABC):
             task_start = time.time()
 
             try:
-                from telegram_client import TelegramSession
+                session = _create_session(client, chat_id)
 
-                session = TelegramSession(client, chat_id)
-
+                effective_timeout = task.timeout * timeout_multiplier
                 response = session.send_message_sync(
-                    task.prompt, wait_for_response=True, timeout=task.timeout
+                    task.prompt, wait_for_response=True, timeout=effective_timeout
                 )
 
                 task_latency = time.time() - task_start
