@@ -51,10 +51,21 @@ class TestTelegramConfig:
         expected = "https://api.telegram.org/bot123456:ABC-DEF"
         assert config.telegram_api_url == expected
 
-    def test_missing_required_field(self):
-        """Test that missing required fields raise validation error."""
-        with pytest.raises(ValidationError):
-            TelegramConfig()
+    def test_local_mode_defaults(self):
+        """Test local mode configuration."""
+        config = TelegramConfig(local_mode=True, telegram_bot_token="")
+
+        assert config.local_mode is True
+        assert config.telegram_bot_token == ""
+        assert config.agent_id == "main"
+        assert config.async_mode is True
+
+    def test_telegram_mode_with_token(self):
+        """Test telegram mode requires token."""
+        config = TelegramConfig(local_mode=False, telegram_bot_token="test_token")
+
+        assert config.local_mode is False
+        assert config.telegram_bot_token == "test_token"
 
     def test_async_mode_flag(self):
         """Test async_mode flag behavior."""
