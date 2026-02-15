@@ -20,14 +20,32 @@ class TelegramConfig(BaseSettings):
         description="Use local OpenClaw gateway via 'openclaw agent' CLI instead of Telegram",
     )
 
-    # Telegram settings
-    telegram_bot_token: str = Field(
+    # Telegram settings (Client API - for user-based client)
+    telegram_api_id: int = Field(
+        default=0,
+        description="Telegram API ID from https://my.telegram.org (required for Telegram mode)",
+    )
+    telegram_api_hash: str = Field(
         default="",
-        description="Telegram bot token from BotFather (required for Telegram mode)",
+        description="Telegram API Hash from https://my.telegram.org (required for Telegram mode)",
+    )
+    telegram_phone: str = Field(
+        default="",
+        description="Your Telegram phone number (with country code, e.g. +1234567890)",
+    )
+    telegram_session_name: str = Field(
+        default="openclaw_benchmark",
+        description="Session name for storing authentication data",
     )
     openclaw_bot_username: str = Field(
         default="openclaw_bot",
         description="Username of the OpenClaw bot to interact with",
+    )
+
+    # Deprecated Bot API settings (kept for backwards compatibility)
+    telegram_bot_token: str = Field(
+        default="",
+        description="[DEPRECATED] Telegram bot token - use Client API instead",
     )
 
     # Local mode settings
@@ -72,6 +90,98 @@ class TelegramConfig(BaseSettings):
     default_session_timeout: int = Field(
         default=300,
         description="Default session timeout in seconds",
+    )
+
+    # Remote setup settings
+    bot_ssh_host: str = Field(
+        default="localhost",
+        description="SSH host for remote bot setup and validation",
+    )
+    bot_ssh_port: int = Field(
+        default=22,
+        description="SSH port for remote bot connection",
+    )
+    bot_ssh_user: str = Field(
+        default="openclaw",
+        description="SSH username for remote bot connection",
+    )
+    bot_workspace_path: str = Field(
+        default="/tmp/openclaw_benchmark",
+        description="Workspace path on remote bot for benchmark files",
+    )
+    bot_ssh_key_path: str = Field(
+        default="",
+        description="Path to SSH private key for remote bot authentication (e.g. ~/.ssh/id_rsa)",
+    )
+    bot_ssh_password: str = Field(
+        default="",
+        description="SSH password for remote bot authentication (use key_path if possible)",
+    )
+    bot_ssh_key_passphrase: str = Field(
+        default="",
+        description="Passphrase for encrypted SSH private key (if applicable)",
+    )
+
+    # AI agent settings
+    ai_agent_model: str = Field(
+        default="gpt-4o-mini",
+        description="OpenAI model for AI agent user simulation",
+    )
+    openai_api_key: str = Field(
+        default="",
+        description="OpenAI API key for AI agent",
+    )
+
+    # Conversation settings
+    max_conversation_turns: int = Field(
+        default=10,
+        description="Maximum number of conversation turns per task",
+    )
+    conversation_timeout: float = Field(
+        default=300.0,
+        description="Maximum time for entire conversation in seconds",
+    )
+
+    # Gmail API settings (for Gmail scenario - requires TWO Gmail accounts)
+    google_client_id: str = Field(
+        default="",
+        description="OAuth2 client ID for BENCHMARK Gmail account",
+    )
+    google_client_secret: str = Field(
+        default="",
+        description="OAuth2 client secret for BENCHMARK Gmail account",
+    )
+    google_refresh_token: str = Field(
+        default="",
+        description="OAuth2 refresh token for BENCHMARK Gmail account",
+    )
+    gmail_benchmark_email: str = Field(
+        default="",
+        description="Benchmark Gmail address (account that has OAuth2 credentials)",
+    )
+    gmail_bot_email: str = Field(
+        default="",
+        description="Bot's Gmail address (configured in OpenClaw bot)",
+    )
+
+    # Tavily API settings (for Web Search scenario)
+    tavily_api_key: str = Field(
+        default="",
+        description="Tavily API key for web search capabilities",
+    )
+
+    # GitHub API settings (for GitHub scenario)
+    github_token: str = Field(
+        default="",
+        description="GitHub personal access token for benchmark validation",
+    )
+    github_test_repo_owner: str = Field(
+        default="",
+        description="Owner of test repository for GitHub benchmarks",
+    )
+    github_test_repo_name: str = Field(
+        default="",
+        description="Name of test repository for GitHub benchmarks",
     )
 
     # Logging

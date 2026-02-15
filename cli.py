@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from benchmark_runner import EXAMPLE_SCENARIOS, BenchmarkRunner, BenchmarkScenario
+from benchmarks.ai_agent import BenchmarkAgent
 from benchmarks.base import CheckStatus
 from benchmarks.scenarios import SCENARIO_MAP
 from benchmarks.skill_checker import get_ready_skills
@@ -189,21 +190,52 @@ def run_benchmark_sync(
         print(f"\nResults exported to: {output_path}")
 
 
-def _build_scenarios(args, skip_missing: bool = True, local_mode: bool = True):
+def _build_scenarios(args, skip_missing: bool = True, local_mode: bool = True, remote_manager=None):
     """Build scenario list, optionally skipping those with missing skills.
 
     In Telegram mode, skill detection is unavailable so all scenarios are included
     (missing skills will surface as task failures at runtime).
+
+    Args:
+        args: CLI arguments
+        skip_missing: Skip scenarios with missing skills
+        local_mode: True for local mode, False for Telegram mode
+        remote_manager: Optional RemoteWorkspaceManager for remote validation
     """
+    from benchmarks.scenarios import GmailScenario, GitHubScenario
+
     ready_skills = get_ready_skills(local_mode=local_mode)
+    config = load_config()
+
+    def _instantiate_scenario(cls, remote_manager):
+        """Instantiate a scenario with appropriate parameters."""
+        if cls == GmailScenario:
+            # Gmail scenario needs OAuth2 credentials from config
+            return cls(
+                client_id=config.google_client_id,
+                client_secret=config.google_client_secret,
+                refresh_token=config.google_refresh_token,
+                benchmark_email=config.gmail_benchmark_email,
+                bot_email=config.gmail_bot_email,
+            )
+        elif cls == GitHubScenario:
+            # GitHub scenario needs personal access token from config
+            return cls(
+                github_token=config.github_token,
+                test_repo_owner=config.github_test_repo_owner,
+                test_repo_name=config.github_test_repo_name,
+            )
+        else:
+            # Other scenarios just need remote_manager
+            return cls(remote_manager=remote_manager)
 
     if args.scenario == "all":
-        candidates = [cls() for cls in SCENARIO_MAP.values()]
+        candidates = [_instantiate_scenario(cls, remote_manager) for cls in SCENARIO_MAP.values()]
     else:
         cls = SCENARIO_MAP.get(args.scenario)
         if not cls:
             raise ValueError(f"Unknown scenario: {args.scenario}")
-        candidates = [cls()]
+        candidates = [_instantiate_scenario(cls, remote_manager)]
 
     scenarios = []
     skipped = []
@@ -239,7 +271,21 @@ def _print_suite_header(config, scenarios, skipped, args):
         for name, missing in skipped:
             print(f"  - {name} (missing: {', '.join(missing)})")
 
-    print(f"{'='*60}\n")
+    print(f"{'='*60}")
+
+    # Display scenario details with tasks
+    print("\nScenarios to run:")
+    for i, scenario in enumerate(scenarios, 1):
+        print(f"\n{i}. {scenario.name}")
+        print(f"   Description: {scenario.description}")
+        skills_label = ", ".join(scenario.required_skills) or "(core tools only)"
+        print(f"   Required skills: {skills_label}")
+        print(f"   Tasks ({len(scenario.tasks)}):")
+        for j, task in enumerate(scenario.tasks, 1):
+            difficulty = task.metadata.get("difficulty", "unknown").upper()
+            print(f"      {j}. {task.name} [{difficulty}]")
+
+    print(f"\n{'='*60}\n")
 
 
 def _print_scenario_result(result, index, total):
@@ -284,7 +330,27 @@ def _export_results(config, all_results, output_path):
 
 async def run_benchmark_suite_async(config: TelegramConfig, args) -> None:
     """Run benchmark suite asynchronously."""
-    scenarios, skipped = _build_scenarios(args, skip_missing=args.skip_missing, local_mode=config.local_mode)
+    # Create RemoteWorkspaceManager if in remote mode (Telegram) and SSH is configured
+    remote_manager = None
+    if not config.local_mode:
+        if config.bot_ssh_key_path or config.bot_ssh_password:
+            logger.info("Remote validation enabled via SSH")
+            from benchmarks.remote_workspace import RemoteWorkspaceManager
+            remote_manager = RemoteWorkspaceManager(
+                host=config.bot_ssh_host,
+                port=config.bot_ssh_port,
+                user=config.bot_ssh_user,
+                key_path=config.bot_ssh_key_path if config.bot_ssh_key_path else None,
+                password=config.bot_ssh_password if config.bot_ssh_password else None,
+                workspace_path=config.bot_workspace_path,
+                key_passphrase=config.bot_ssh_key_passphrase if config.bot_ssh_key_passphrase else None,
+            )
+            print(f"Remote validation: SSH to {config.bot_ssh_user}@{config.bot_ssh_host}")
+        else:
+            logger.warning("Remote mode without SSH credentials - validation will be skipped")
+            print("⚠️  Remote mode without SSH credentials - file validation will be skipped")
+
+    scenarios, skipped = _build_scenarios(args, skip_missing=args.skip_missing, local_mode=config.local_mode, remote_manager=remote_manager)
 
     if not scenarios:
         print("\nNo scenarios to run (all skipped due to missing skills).")
@@ -292,9 +358,27 @@ async def run_benchmark_suite_async(config: TelegramConfig, args) -> None:
 
     _print_suite_header(config, scenarios, skipped, args)
 
+    # Create AI agent (required)
+    if not config.openai_api_key:
+        print("\nERROR: OPENAI_API_KEY is required for multi-turn conversations.")
+        print("Please set OPENAI_API_KEY in your .env file.")
+        raise ValueError("Missing required OPENAI_API_KEY configuration")
+
+    logger.info("Creating AI agent for multi-turn conversations")
+    ai_agent = BenchmarkAgent(
+        model_name=config.ai_agent_model,
+        openai_api_key=config.openai_api_key,
+        max_turns=config.max_conversation_turns,
+        conversation_timeout=config.conversation_timeout,
+    )
+    print(f"Multi-turn mode: max {config.max_conversation_turns} turns, {config.conversation_timeout}s timeout, model {config.ai_agent_model}")
+
     client_cls = LocalClient if config.local_mode else TelegramClient
     async with client_cls(config) as client:
         all_results = []
+
+        # Determine bot identifier based on client type
+        bot_identifier = args.chat_id if config.local_mode else config.openclaw_bot_username
 
         for i, scenario in enumerate(scenarios, 1):
             print(f"\n[{i}/{len(scenarios)}] Running scenario: {scenario.name}")
@@ -302,7 +386,13 @@ async def run_benchmark_suite_async(config: TelegramConfig, args) -> None:
             skills_label = ", ".join(scenario.required_skills) or "(core tools only)"
             print(f"Required skills: {skills_label}\n")
 
-            result = await scenario.run_async(client, args.chat_id, skip_setup=args.no_setup, timeout_multiplier=config.timeout_multiplier)
+            result = await scenario.run_async(
+                client,
+                bot_identifier,
+                skip_setup=args.no_setup,
+                timeout_multiplier=config.timeout_multiplier,
+                ai_agent=ai_agent,
+            )
             all_results.append(result)
             _print_scenario_result(result, i, len(scenarios))
 
@@ -312,7 +402,27 @@ async def run_benchmark_suite_async(config: TelegramConfig, args) -> None:
 
 def run_benchmark_suite_sync(config: TelegramConfig, args) -> None:
     """Run benchmark suite synchronously."""
-    scenarios, skipped = _build_scenarios(args, skip_missing=args.skip_missing, local_mode=config.local_mode)
+    # Create RemoteWorkspaceManager if in remote mode (Telegram) and SSH is configured
+    remote_manager = None
+    if not config.local_mode:
+        if config.bot_ssh_key_path or config.bot_ssh_password:
+            logger.info("Remote validation enabled via SSH")
+            from benchmarks.remote_workspace import RemoteWorkspaceManager
+            remote_manager = RemoteWorkspaceManager(
+                host=config.bot_ssh_host,
+                port=config.bot_ssh_port,
+                user=config.bot_ssh_user,
+                key_path=config.bot_ssh_key_path if config.bot_ssh_key_path else None,
+                password=config.bot_ssh_password if config.bot_ssh_password else None,
+                workspace_path=config.bot_workspace_path,
+                key_passphrase=config.bot_ssh_key_passphrase if config.bot_ssh_key_passphrase else None,
+            )
+            print(f"Remote validation: SSH to {config.bot_ssh_user}@{config.bot_ssh_host}")
+        else:
+            logger.warning("Remote mode without SSH credentials - validation will be skipped")
+            print("⚠️  Remote mode without SSH credentials - file validation will be skipped")
+
+    scenarios, skipped = _build_scenarios(args, skip_missing=args.skip_missing, local_mode=config.local_mode, remote_manager=remote_manager)
 
     if not scenarios:
         print("\nNo scenarios to run (all skipped due to missing skills).")
@@ -320,9 +430,27 @@ def run_benchmark_suite_sync(config: TelegramConfig, args) -> None:
 
     _print_suite_header(config, scenarios, skipped, args)
 
+    # Create AI agent (required)
+    if not config.openai_api_key:
+        print("\nERROR: OPENAI_API_KEY is required for multi-turn conversations.")
+        print("Please set OPENAI_API_KEY in your .env file.")
+        raise ValueError("Missing required OPENAI_API_KEY configuration")
+
+    logger.info("Creating AI agent for multi-turn conversations (sync wrapper)")
+    ai_agent = BenchmarkAgent(
+        model_name=config.ai_agent_model,
+        openai_api_key=config.openai_api_key,
+        max_turns=config.max_conversation_turns,
+        conversation_timeout=config.conversation_timeout,
+    )
+    print(f"Multi-turn mode (sync): max {config.max_conversation_turns} turns, {config.conversation_timeout}s timeout, model {config.ai_agent_model}")
+
     client_cls = LocalClient if config.local_mode else TelegramClient
     with client_cls(config) as client:
         all_results = []
+
+        # Determine bot identifier based on client type
+        bot_identifier = args.chat_id if config.local_mode else config.openclaw_bot_username
 
         for i, scenario in enumerate(scenarios, 1):
             print(f"\n[{i}/{len(scenarios)}] Running scenario: {scenario.name}")
@@ -330,7 +458,13 @@ def run_benchmark_suite_sync(config: TelegramConfig, args) -> None:
             skills_label = ", ".join(scenario.required_skills) or "(core tools only)"
             print(f"Required skills: {skills_label}\n")
 
-            result = scenario.run_sync(client, args.chat_id, skip_setup=args.no_setup, timeout_multiplier=config.timeout_multiplier)
+            result = scenario.run_sync(
+                client,
+                bot_identifier,
+                skip_setup=args.no_setup,
+                timeout_multiplier=config.timeout_multiplier,
+                ai_agent=ai_agent,
+            )
             all_results.append(result)
             _print_scenario_result(result, i, len(scenarios))
 
@@ -399,12 +533,12 @@ def main() -> int:
         type=int,
         nargs="?",
         default=0,
-        help="Chat ID for testing (not required in --local mode)",
+        help="Chat ID for local mode (ignored in Telegram mode)",
     )
     suite_parser.add_argument(
         "--scenario",
         type=str,
-        choices=["file", "web", "weather", "github", "image", "all"],
+        choices=list(SCENARIO_MAP.keys()) + ["all"],
         default="all",
         help="Scenario to run",
     )
@@ -492,13 +626,31 @@ def main() -> int:
             return 1
 
     elif args.command == "list-scenarios":
+        from benchmarks.scenarios import GmailScenario, GitHubScenario
+
         ready_skills = get_ready_skills(local_mode=config.local_mode)
 
         print("\nAvailable Benchmark Scenarios:")
         print(f"{'='*60}")
 
         for name, cls in SCENARIO_MAP.items():
-            scenario = cls()
+            # Instantiate scenario with appropriate parameters
+            if cls == GmailScenario:
+                scenario = cls(
+                    client_id=config.google_client_id,
+                    client_secret=config.google_client_secret,
+                    refresh_token=config.google_refresh_token,
+                    benchmark_email=config.gmail_benchmark_email,
+                    bot_email=config.gmail_bot_email,
+                )
+            elif cls == GitHubScenario:
+                scenario = cls(
+                    github_token=config.github_token,
+                    test_repo_owner=config.github_test_repo_owner,
+                    test_repo_name=config.github_test_repo_name,
+                )
+            else:
+                scenario = cls()
             if ready_skills is None:
                 status = "UNKNOWN (Telegram mode — skill detection unavailable)"
             else:
@@ -526,9 +678,6 @@ def main() -> int:
         return 0
 
     elif args.command == "benchmark-suite":
-        if not config.local_mode and not args.chat_id:
-            logger.error("chat_id is required in Telegram mode (use --local to skip)")
-            return 1
         try:
             if config.async_mode:
                 asyncio.run(run_benchmark_suite_async(config, args))

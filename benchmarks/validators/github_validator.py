@@ -1,74 +1,49 @@
-"""Validation utilities for GitHub skill tasks."""
+"""Validation utilities for GitHub benchmark tasks."""
 
-import re
+import logging
 from typing import Any
 
 from benchmarks.base import TaskResult
 
+logger = logging.getLogger(__name__)
+
 
 class GitHubValidator:
-    """Validates GitHub skill task results."""
+    """Validates GitHub task results."""
 
     @staticmethod
-    def validate_repo_info(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 1: Repository information via gh CLI.
-
-        Expected: Description, star count, and primary language.
-        """
+    def validate_issue_creation(response: str, setup_data: dict[str, Any]) -> TaskResult:
+        """Validate Task 1: Issue creation."""
+        expected_title = setup_data.get("issue_title", "")
+        
         success = False
         accuracy_score = 0.0
-        validation_details = {}
-
-        response_lower = response.lower()
-
-        # Check for repo/org identification
-        found_repo = "anthropic" in response_lower and "cookbook" in response_lower
-        validation_details["found_repo"] = found_repo
-        if found_repo:
-            accuracy_score += 30.0
-
-        # Check for star count (a number near "star")
-        star_pattern = r"(\d[\d,]*)\s*(?:star|⭐)"
-        star_match = re.search(star_pattern, response_lower)
-        if not star_match:
-            # Also check "stars: 1234" or "1234 stars"
-            star_pattern2 = r"(?:star[s]?[:\s]+)(\d[\d,]*)|(\d[\d,]*)\s*star"
-            star_match = re.search(star_pattern2, response_lower)
-        found_stars = star_match is not None
-        validation_details["found_stars"] = found_stars
-        if found_stars:
-            accuracy_score += 35.0
-
-        # Check for primary language
-        lang_keywords = [
-            "python", "jupyter", "notebook", "javascript", "typescript",
-            "markdown", "shell", "go", "rust",
-        ]
-        found_lang = any(kw in response_lower for kw in lang_keywords)
-        validation_details["found_language"] = found_lang
-        if found_lang:
-            accuracy_score += 35.0
-
-        if found_repo and found_stars and found_lang:
-            success = True
-            accuracy_score = 100.0
-        elif found_repo and (found_stars or found_lang):
-            success = True
-
+        validation_details = {"expected_title": expected_title}
         error_message = None
-        if not success:
-            missing = []
-            if not found_repo:
-                missing.append("repository identification")
-            if not found_stars:
-                missing.append("star count")
-            if not found_lang:
-                missing.append("primary language")
-            error_message = f"Missing: {', '.join(missing)}"
+
+        try:
+            # Check if bot mentioned issue creation
+            creation_keywords = ["issue", "created", "opened", "#"]
+            has_creation = any(kw in response.lower() for kw in creation_keywords)
+            
+            # Check if title is mentioned
+            title_mentioned = expected_title.lower() in response.lower() if expected_title else True
+            
+            validation_details["has_creation_keywords"] = has_creation
+            validation_details["title_mentioned"] = title_mentioned
+            
+            if has_creation and title_mentioned:
+                success = True
+                accuracy_score = 100.0
+            else:
+                error_message = "Issue creation not confirmed or title not mentioned"
+                
+        except Exception as e:
+            error_message = f"Validation error: {str(e)}"
 
         return TaskResult(
-            task_name="Repo Info",
-            prompt="Get info about anthropics/anthropic-cookbook via gh CLI",
+            task_name="Issue Creation",
+            prompt="Create a GitHub issue",
             success=success,
             latency=0.0,
             accuracy_score=accuracy_score,
@@ -78,62 +53,77 @@ class GitHubValidator:
         )
 
     @staticmethod
-    def validate_list_issues(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 2: List recent open issues via gh CLI.
-
-        Expected: At least 2 issue numbers (#NNN) with titles.
-        """
+    def validate_issue_list(response: str, setup_data: dict[str, Any]) -> TaskResult:
+        """Validate Task 2: List issues."""
         success = False
         accuracy_score = 0.0
         validation_details = {}
-
-        # Check for issue numbers (#NNN pattern)
-        issue_pattern = r"#(\d+)"
-        issues = re.findall(issue_pattern, response)
-        unique_issues = list(set(issues))
-        validation_details["issue_numbers"] = unique_issues[:10]
-        validation_details["issue_count"] = len(unique_issues)
-
-        if len(unique_issues) >= 3:
-            accuracy_score += 50.0
-        elif len(unique_issues) >= 2:
-            accuracy_score += 35.0
-        elif len(unique_issues) >= 1:
-            accuracy_score += 15.0
-
-        # Check for issue titles (non-trivial text near issue numbers)
-        # Look for lines that contain both a number and substantial text
-        lines = response.split("\n")
-        titled_lines = 0
-        for line in lines:
-            if re.search(r"#\d+", line) and len(line.strip()) > 15:
-                titled_lines += 1
-        validation_details["titled_lines"] = titled_lines
-
-        if titled_lines >= 3:
-            accuracy_score += 50.0
-        elif titled_lines >= 2:
-            accuracy_score += 35.0
-        elif titled_lines >= 1:
-            accuracy_score += 15.0
-
-        if len(unique_issues) >= 2 and titled_lines >= 2:
-            success = True
-        if len(unique_issues) >= 3 and titled_lines >= 3:
-            accuracy_score = 100.0
-
         error_message = None
-        if not success:
-            parts = []
-            if len(unique_issues) < 2:
-                parts.append(f"only {len(unique_issues)} issue numbers (need 2+)")
-            if titled_lines < 2:
-                parts.append(f"only {titled_lines} issues with titles (need 2+)")
-            error_message = "Incomplete: " + ", ".join(parts)
+
+        try:
+            # Check for list-related keywords
+            list_keywords = ["issue", "open", "list", "#"]
+            has_list = any(kw in response.lower() for kw in list_keywords)
+            
+            # Check reasonable content
+            has_content = len(response) > 30
+            
+            validation_details["has_list_keywords"] = has_list
+            validation_details["has_content"] = has_content
+            
+            if has_list and has_content:
+                success = True
+                accuracy_score = 100.0
+            else:
+                error_message = "Issue list not provided or insufficient"
+                
+        except Exception as e:
+            error_message = f"Validation error: {str(e)}"
 
         return TaskResult(
             task_name="List Issues",
-            prompt="List 3 most recent open issues from anthropics/anthropic-cookbook",
+            prompt="List open issues in repository",
+            success=success,
+            latency=0.0,
+            accuracy_score=accuracy_score,
+            response_text=response,
+            validation_details=validation_details,
+            error_message=error_message,
+        )
+
+    @staticmethod
+    def validate_repo_info(response: str, setup_data: dict[str, Any]) -> TaskResult:
+        """Validate Task 3: Repository information."""
+        repo_name = setup_data.get("repo_name", "")
+        
+        success = False
+        accuracy_score = 0.0
+        validation_details = {"repo_name": repo_name}
+        error_message = None
+
+        try:
+            # Check for repo-related keywords
+            repo_keywords = ["repository", "repo", "star", "fork", "description"]
+            has_repo_info = any(kw in response.lower() for kw in repo_keywords)
+            
+            # Check repo name mentioned
+            repo_mentioned = repo_name.lower() in response.lower() if repo_name else True
+            
+            validation_details["has_repo_info"] = has_repo_info
+            validation_details["repo_mentioned"] = repo_mentioned
+            
+            if has_repo_info and repo_mentioned:
+                success = True
+                accuracy_score = 100.0
+            else:
+                error_message = "Repository information not provided"
+                
+        except Exception as e:
+            error_message = f"Validation error: {str(e)}"
+
+        return TaskResult(
+            task_name="Repository Info",
+            prompt="Get repository information",
             success=success,
             latency=0.0,
             accuracy_score=accuracy_score,

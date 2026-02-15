@@ -19,8 +19,12 @@ logger = logging.getLogger(__name__)
 class FileScenario(ScenarioBase):
     """Benchmark scenario for file manipulation capabilities."""
 
-    def __init__(self):
-        """Initialize file manipulation scenario."""
+    def __init__(self, remote_manager=None):
+        """Initialize file manipulation scenario.
+
+        Args:
+            remote_manager: Optional RemoteWorkspaceManager for remote setup/validation
+        """
         super().__init__(
             name="File Manipulation",
             description="Tests agent's ability to create, read, transform, and extract data from files",
@@ -29,60 +33,67 @@ class FileScenario(ScenarioBase):
 
         self.file_setup = FileSetup()
         self.validator = FileValidator()
+        self.remote_manager = remote_manager
 
         # Define tasks
         self._define_tasks()
 
     def _define_tasks(self) -> None:
-        """Define the 3 file manipulation tasks."""
+        """Define the 3 file manipulation tasks with progressive complexity."""
 
-        # Task 1: File Creation
+        # Task 1: File Organization - Create directory structure
         self.add_task(
             BenchmarkTask(
-                name="File Creation",
+                name="File Organization",
                 prompt=(
-                    f"Create a file named 'summary.md' in {self.file_setup.workspace_dir} "
-                    "with a bullet list of the following programming languages: "
-                    "Python, JavaScript, Rust"
+                    f"Read the user data from {self.file_setup.data_json_path}. "
+                    f"For each user, create a directory named 'users/{{name}}/' under {self.file_setup.workspace_dir}, "
+                    "where {{name}} is the user's name (e.g., 'Alice Johnson'). "
+                    "In each user directory, create a file called 'profile.txt' containing their email and role, "
+                    "formatted as:\n"
+                    "Email: {{email}}\n"
+                    "Role: {{role}}"
                 ),
-                expected_output_description="Markdown file with bullet list of 3 languages",
-                validation_fn=self.validator.validate_file_creation,
-                timeout=40.0,
-                metadata={"difficulty": "low", "category": "file_creation"},
-            )
-        )
-
-        # Task 2: JSON to CSV Transformation
-        self.add_task(
-            BenchmarkTask(
-                name="JSON to CSV Transformation",
-                prompt=(
-                    f"Read the file {self.file_setup.data_json_path} and create a CSV file "
-                    f"named 'data.csv' in {self.file_setup.workspace_dir} with just the "
-                    "names and emails. The CSV should have columns: name, email"
-                ),
-                expected_output_description="CSV file named data.csv with name and email columns",
-                validation_fn=self.validator.validate_json_to_csv,
+                expected_output_description="Directory structure: users/{name}/profile.txt for each user",
+                validation_fn=self.validator.validate_file_organization,
                 timeout=60.0,
-                metadata={"difficulty": "medium", "category": "data_transformation"},
+                metadata={"difficulty": "easy", "category": "file_organization"},
             )
         )
 
-        # Task 3: Text Extraction
+        # Task 2: File Modification - Update existing files
         self.add_task(
             BenchmarkTask(
-                name="Text Extraction and Reporting",
+                name="File Modification",
                 prompt=(
-                    f"Read {self.file_setup.notes_txt_path} and extract all the action items. "
-                    "Action items are lines in the 'Action Items:' section that start with "
-                    "'- Name: task description'. "
-                    f"Save them to a new file at {self.file_setup.reports_dir}/actions.txt. "
-                    "Only include the action items, not the discussion points or other notes."
+                    f"Read {self.file_setup.notes_txt_path} to count how many action items each person has. "
+                    "Count ONLY action items explicitly assigned to each person by their name (e.g., 'Alice:', 'Bob:', 'Carol:'). "
+                    "Do NOT count action items assigned to 'Everyone' or group names. "
+                    f"Then update each profile.txt file in the users/ directories to add a new line at the end: "
+                    "'Action Items: X' where X is the count of action items for that specific person. "
+                    "If a user has no action items explicitly assigned to them by name, use 0."
                 ),
-                expected_output_description="Text file with extracted action items only",
-                validation_fn=self.validator.validate_text_extraction,
-                timeout=50.0,
-                metadata={"difficulty": "medium", "category": "text_extraction"},
+                expected_output_description="Updated profile.txt files with action item counts",
+                validation_fn=self.validator.validate_file_modification,
+                timeout=60.0,
+                metadata={"difficulty": "easy", "category": "file_modification"},
+            )
+        )
+
+        # Task 3: File Consolidation - Aggregate data from multiple files
+        self.add_task(
+            BenchmarkTask(
+                name="File Consolidation",
+                prompt=(
+                    f"Find all profile.txt files in the users/ directories under {self.file_setup.workspace_dir}. "
+                    f"Read each profile and create a CSV file named 'users_summary.csv' in {self.file_setup.workspace_dir} "
+                    "with columns: name, email, role, action_count. "
+                    "Sort the rows by action_count in descending order (highest first)."
+                ),
+                expected_output_description="CSV file with aggregated user data sorted by action count",
+                validation_fn=self.validator.validate_file_consolidation,
+                timeout=60.0,
+                metadata={"difficulty": "easy", "category": "file_consolidation"},
             )
         )
 
@@ -119,19 +130,25 @@ class FileScenario(ScenarioBase):
             Setup result with paths to created files
         """
         try:
-            logger.info("Creating test workspace and seed files...")
-            setup_data = self.file_setup.create_workspace()
+            if self.remote_manager:
+                # Remote setup via SSH
+                logger.info("Creating remote workspace and seed files...")
+                return self.remote_manager.remote_setup()
+            else:
+                # Local setup
+                logger.info("Creating test workspace and seed files...")
+                setup_data = self.file_setup.create_workspace()
 
-            logger.info(f"Workspace created at: {setup_data['workspace_dir']}")
-            logger.info(f"  - data.json: {setup_data['data_json']}")
-            logger.info(f"  - notes.txt: {setup_data['notes_txt']}")
-            logger.info(f"  - reports/: {setup_data['reports_dir']}")
+                logger.info(f"Workspace created at: {setup_data['workspace_dir']}")
+                logger.info(f"  - data.json: {setup_data['data_json']}")
+                logger.info(f"  - notes.txt: {setup_data['notes_txt']}")
+                logger.info(f"  - reports/: {setup_data['reports_dir']}")
 
-            return SetupResult(
-                status=CheckStatus.PASS,
-                message="File workspace created successfully",
-                setup_data=setup_data,
-            )
+                return SetupResult(
+                    status=CheckStatus.PASS,
+                    message="File workspace created successfully",
+                    setup_data=setup_data,
+                )
 
         except Exception as e:
             logger.error(f"Setup failed: {e}")
@@ -148,11 +165,17 @@ class FileScenario(ScenarioBase):
             True if cleanup succeeded
         """
         try:
-            logger.info("Cleaning up test workspace...")
-            success = self.file_setup.cleanup_workspace()
-            if success:
-                logger.info("Workspace cleaned up successfully")
-            return success
+            if self.remote_manager:
+                # Remote cleanup via SSH
+                logger.info("Cleaning up remote workspace...")
+                return self.remote_manager.remote_cleanup()
+            else:
+                # Local cleanup
+                logger.info("Cleaning up test workspace...")
+                success = self.file_setup.cleanup_workspace()
+                if success:
+                    logger.info("Workspace cleaned up successfully")
+                return success
         except Exception as e:
             logger.error(f"Cleanup error: {e}")
             return False

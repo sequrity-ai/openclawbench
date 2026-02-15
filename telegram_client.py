@@ -1,4 +1,4 @@
-"""Telegram Bot API client with dual-mode (async/sync) support."""
+"""Telegram Client API client using Pyrogram for user-based interactions."""
 
 import asyncio
 import logging
@@ -6,8 +6,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-import aiohttp
-import requests
+from pyrogram import Client
+from pyrogram.types import Message as PyrogramMessage
 
 from config import TelegramConfig
 
@@ -26,37 +26,20 @@ class TelegramMessage:
     date: int
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TelegramMessage":
-        """Create a TelegramMessage from API response dict."""
-        from_user = data.get("from", {})
+    def from_pyrogram(cls, msg: PyrogramMessage) -> "TelegramMessage":
+        """Create a TelegramMessage from Pyrogram Message."""
         return cls(
-            message_id=data["message_id"],
-            chat_id=data["chat"]["id"],
-            text=data.get("text"),
-            from_user_id=from_user.get("id"),
-            from_username=from_user.get("username"),
-            date=data["date"],
+            message_id=msg.id,
+            chat_id=msg.chat.id,
+            text=msg.text,
+            from_user_id=msg.from_user.id if msg.from_user else None,
+            from_username=msg.from_user.username if msg.from_user else None,
+            date=int(msg.date.timestamp()) if msg.date else 0,
         )
 
 
-@dataclass
-class TelegramUpdate:
-    """Represents a Telegram update."""
-
-    update_id: int
-    message: TelegramMessage | None
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TelegramUpdate":
-        """Create a TelegramUpdate from API response dict."""
-        message = None
-        if "message" in data:
-            message = TelegramMessage.from_dict(data["message"])
-        return cls(update_id=data["update_id"], message=message)
-
-
 class TelegramClient:
-    """Telegram Bot API client with sync/async support."""
+    """Telegram Client API client using Pyrogram."""
 
     def __init__(self, config: TelegramConfig):
         """Initialize the Telegram client.
@@ -65,9 +48,7 @@ class TelegramClient:
             config: Telegram configuration
         """
         self.config = config
-        self.base_url = config.telegram_api_url
-        self._offset: int = 0
-        self._session: aiohttp.ClientSession | None = None
+        self._client: Client | None = None
         self._setup_logging()
 
     def _setup_logging(self) -> None:
@@ -82,245 +63,196 @@ class TelegramClient:
 
     async def __aenter__(self) -> "TelegramClient":
         """Async context manager entry."""
-        if self.config.async_mode:
-            self._session = aiohttp.ClientSession()
+        # Check if session exists
+        from pathlib import Path
+        import os
+
+        # Use absolute path for session file
+        session_dir = os.getcwd()
+        session_name = self.config.telegram_session_name
+        session_path = os.path.join(session_dir, session_name)
+        session_file = Path(f"{session_path}.session")
+
+        # Only pass phone_number if session doesn't exist (first time auth)
+        client_kwargs = {
+            "name": session_path,
+            "api_id": self.config.telegram_api_id,
+            "api_hash": self.config.telegram_api_hash,
+        }
+        if not session_file.exists() and self.config.telegram_phone:
+            client_kwargs["phone_number"] = self.config.telegram_phone
+
+        self._client = Client(**client_kwargs)
+        await self._client.start()
+        logger.info("Telegram client started")
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         """Async context manager exit."""
-        if self._session:
-            await self._session.close()
+        if self._client:
+            await self._client.stop()
+            logger.info("Telegram client stopped")
 
     def __enter__(self) -> "TelegramClient":
         """Sync context manager entry."""
+        # Check if session exists
+        from pathlib import Path
+        import os
+
+        # Use absolute path for session file
+        session_dir = os.getcwd()
+        session_name = self.config.telegram_session_name
+        session_path = os.path.join(session_dir, session_name)
+        session_file = Path(f"{session_path}.session")
+
+        # Only pass phone_number if session doesn't exist (first time auth)
+        client_kwargs = {
+            "name": session_path,
+            "api_id": self.config.telegram_api_id,
+            "api_hash": self.config.telegram_api_hash,
+        }
+        if not session_file.exists() and self.config.telegram_phone:
+            client_kwargs["phone_number"] = self.config.telegram_phone
+
+        self._client = Client(**client_kwargs)
+        self._client.start()
+        logger.info("Telegram client started (sync)")
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """Sync context manager exit."""
-        pass
-
-    async def _make_request_async(
-        self, method: str, params: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
-        """Make an async HTTP request to Telegram API.
-
-        Args:
-            method: API method name
-            params: Request parameters
-
-        Returns:
-            API response data
-
-        Raises:
-            ValueError: If the request fails
-        """
-        if not self._session:
-            raise RuntimeError("Session not initialized. Use async context manager.")
-
-        url = f"{self.base_url}/{method}"
-        logger.debug(f"Async request to {method} with params: {params}")
-
-        try:
-            async with self._session.post(
-                url, json=params, timeout=self.config.request_timeout
-            ) as response:
-                data = await response.json()
-                if not data.get("ok"):
-                    error_msg = data.get("description", "Unknown error")
-                    raise ValueError(f"Telegram API error: {error_msg}")
-                return data.get("result", {})
-        except asyncio.TimeoutError as e:
-            logger.error(f"Request timeout for {method}")
-            raise ValueError(f"Request timeout: {e}")
-        except Exception as e:
-            logger.error(f"Request failed for {method}: {e}")
-            raise
-
-    def _make_request_sync(
-        self, method: str, params: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
-        """Make a sync HTTP request to Telegram API.
-
-        Args:
-            method: API method name
-            params: Request parameters
-
-        Returns:
-            API response data
-
-        Raises:
-            ValueError: If the request fails
-        """
-        url = f"{self.base_url}/{method}"
-        logger.debug(f"Sync request to {method} with params: {params}")
-
-        try:
-            response = requests.post(url, json=params, timeout=self.config.request_timeout)
-            data = response.json()
-            if not data.get("ok"):
-                error_msg = data.get("description", "Unknown error")
-                raise ValueError(f"Telegram API error: {error_msg}")
-            return data.get("result", {})
-        except requests.Timeout as e:
-            logger.error(f"Request timeout for {method}")
-            raise ValueError(f"Request timeout: {e}")
-        except Exception as e:
-            logger.error(f"Request failed for {method}: {e}")
-            raise
+        if self._client:
+            self._client.stop()
+            logger.info("Telegram client stopped (sync)")
 
     async def send_message_async(
-        self, chat_id: int, text: str, reply_to_message_id: int | None = None
+        self, chat_id: int | str, text: str
     ) -> TelegramMessage:
         """Send a message asynchronously.
 
         Args:
-            chat_id: Chat ID to send message to
+            chat_id: Chat ID or username to send message to
             text: Message text
-            reply_to_message_id: Optional message ID to reply to
 
         Returns:
             Sent message
         """
-        params: dict[str, Any] = {"chat_id": chat_id, "text": text}
-        if reply_to_message_id:
-            params["reply_to_message_id"] = reply_to_message_id
+        if not self._client:
+            raise RuntimeError("Client not initialized. Use context manager.")
 
-        result = await self._make_request_async("sendMessage", params)
-        return TelegramMessage.from_dict(result)
+        msg = await self._client.send_message(chat_id, text)
+        return TelegramMessage.from_pyrogram(msg)
 
     def send_message_sync(
-        self, chat_id: int, text: str, reply_to_message_id: int | None = None
+        self, chat_id: int | str, text: str
     ) -> TelegramMessage:
         """Send a message synchronously.
 
         Args:
-            chat_id: Chat ID to send message to
+            chat_id: Chat ID or username to send message to
             text: Message text
-            reply_to_message_id: Optional message ID to reply to
 
         Returns:
             Sent message
         """
-        params: dict[str, Any] = {"chat_id": chat_id, "text": text}
-        if reply_to_message_id:
-            params["reply_to_message_id"] = reply_to_message_id
+        if not self._client:
+            raise RuntimeError("Client not initialized. Use context manager.")
 
-        result = self._make_request_sync("sendMessage", params)
-        return TelegramMessage.from_dict(result)
+        msg = self._client.send_message(chat_id, text)
+        return TelegramMessage.from_pyrogram(msg)
 
-    async def get_updates_async(self) -> list[TelegramUpdate]:
-        """Get updates asynchronously using long polling.
-
-        Returns:
-            List of updates
-        """
-        params = {
-            "offset": self._offset,
-            "timeout": self.config.polling_timeout,
-            "allowed_updates": ["message"],
-        }
-
-        result = await self._make_request_async("getUpdates", params)
-
-        updates = [TelegramUpdate.from_dict(update) for update in result]
-
-        # Update offset for next poll
-        if updates:
-            self._offset = max(update.update_id for update in updates) + 1
-
-        return updates
-
-    def get_updates_sync(self) -> list[TelegramUpdate]:
-        """Get updates synchronously using long polling.
-
-        Returns:
-            List of updates
-        """
-        params = {
-            "offset": self._offset,
-            "timeout": self.config.polling_timeout,
-            "allowed_updates": ["message"],
-        }
-
-        result = self._make_request_sync("getUpdates", params)
-
-        updates = [TelegramUpdate.from_dict(update) for update in result]
-
-        # Update offset for next poll
-        if updates:
-            self._offset = max(update.update_id for update in updates) + 1
-
-        return updates
-
-    async def send_message_to_bot_async(self, text: str) -> TelegramMessage:
-        """Send a message to the configured OpenClaw bot asynchronously.
+    async def get_chat_history_async(
+        self, chat_id: int | str, limit: int = 10
+    ) -> list[TelegramMessage]:
+        """Get chat history asynchronously.
 
         Args:
-            text: Message text
+            chat_id: Chat ID or username
+            limit: Number of messages to retrieve
 
         Returns:
-            Sent message
-
-        Note:
-            This requires knowing the bot's chat_id, which may need to be
-            obtained through getUpdates or by starting a conversation first.
+            List of messages
         """
-        # Note: In practice, you'd need to get the bot's chat_id first
-        # This is a placeholder that assumes you have the chat_id
-        raise NotImplementedError(
-            "You need to start a conversation with the bot first to get chat_id"
-        )
+        if not self._client:
+            raise RuntimeError("Client not initialized. Use context manager.")
 
-    def send_message_to_bot_sync(self, text: str) -> TelegramMessage:
-        """Send a message to the configured OpenClaw bot synchronously.
+        messages = []
+        async for msg in self._client.get_chat_history(chat_id, limit=limit):
+            messages.append(TelegramMessage.from_pyrogram(msg))
+        return messages
+
+    def get_chat_history_sync(
+        self, chat_id: int | str, limit: int = 10
+    ) -> list[TelegramMessage]:
+        """Get chat history synchronously.
 
         Args:
-            text: Message text
+            chat_id: Chat ID or username
+            limit: Number of messages to retrieve
 
         Returns:
-            Sent message
-
-        Note:
-            This requires knowing the bot's chat_id, which may need to be
-            obtained through getUpdates or by starting a conversation first.
+            List of messages
         """
-        # Note: In practice, you'd need to get the bot's chat_id first
-        # This is a placeholder that assumes you have the chat_id
-        raise NotImplementedError(
-            "You need to start a conversation with the bot first to get chat_id"
-        )
+        if not self._client:
+            raise RuntimeError("Client not initialized. Use context manager.")
+
+        messages = []
+        for msg in self._client.get_chat_history(chat_id, limit=limit):
+            messages.append(TelegramMessage.from_pyrogram(msg))
+        return messages
 
     async def get_me_async(self) -> dict[str, Any]:
-        """Get bot information asynchronously.
+        """Get current user information asynchronously.
 
         Returns:
-            Bot information
+            User information
         """
-        return await self._make_request_async("getMe")
+        if not self._client:
+            raise RuntimeError("Client not initialized. Use context manager.")
+
+        me = await self._client.get_me()
+        return {
+            "id": me.id,
+            "username": me.username,
+            "first_name": me.first_name,
+            "last_name": me.last_name,
+            "phone_number": me.phone_number,
+        }
 
     def get_me_sync(self) -> dict[str, Any]:
-        """Get bot information synchronously.
+        """Get current user information synchronously.
 
         Returns:
-            Bot information
+            User information
         """
-        return self._make_request_sync("getMe")
+        if not self._client:
+            raise RuntimeError("Client not initialized. Use context manager.")
+
+        me = self._client.get_me()
+        return {
+            "id": me.id,
+            "username": me.username,
+            "first_name": me.first_name,
+            "last_name": me.last_name,
+            "phone_number": me.phone_number,
+        }
 
 
 class TelegramSession:
     """Manages a conversation session with a Telegram bot."""
 
-    def __init__(self, client: TelegramClient, chat_id: int):
+    def __init__(self, client: TelegramClient, bot_username: str):
         """Initialize a Telegram session.
 
         Args:
             client: Telegram client
-            chat_id: Chat ID for this session
+            bot_username: Bot username to chat with (e.g., '@aaron123openclawbot')
         """
         self.client = client
-        self.chat_id = chat_id
+        self.bot_username = bot_username if bot_username.startswith("@") else f"@{bot_username}"
         self.messages: list[TelegramMessage] = []
         self.start_time = time.time()
+        self._last_message_id: int = 0
 
     async def send_message_async(
         self, text: str, wait_for_response: bool = True, timeout: float = 30.0
@@ -335,14 +267,16 @@ class TelegramSession:
         Returns:
             Response message if wait_for_response is True, else None
         """
-        sent_msg = await self.client.send_message_async(self.chat_id, text)
+        sent_msg = await self.client.send_message_async(self.bot_username, text)
         self.messages.append(sent_msg)
-        logger.info(f"Sent message: {text[:50]}...")
+        self._last_message_id = sent_msg.message_id
+        logger.info(f"Sent message to {self.bot_username}: {text[:50]}...")
 
         if wait_for_response:
             response = await self._wait_for_response_async(timeout)
             if response:
                 self.messages.append(response)
+                self._last_message_id = response.message_id
             return response
 
         return None
@@ -360,14 +294,16 @@ class TelegramSession:
         Returns:
             Response message if wait_for_response is True, else None
         """
-        sent_msg = self.client.send_message_sync(self.chat_id, text)
+        sent_msg = self.client.send_message_sync(self.bot_username, text)
         self.messages.append(sent_msg)
-        logger.info(f"Sent message: {text[:50]}...")
+        self._last_message_id = sent_msg.message_id
+        logger.info(f"Sent message to {self.bot_username}: {text[:50]}...")
 
         if wait_for_response:
             response = self._wait_for_response_sync(timeout)
             if response:
                 self.messages.append(response)
+                self._last_message_id = response.message_id
             return response
 
         return None
@@ -382,22 +318,23 @@ class TelegramSession:
             Response message or None if timeout
         """
         start_time = time.time()
-        last_message_time = self.messages[-1].date if self.messages else 0
+        polling_interval = self.client.config.polling_interval
 
         while time.time() - start_time < timeout:
-            updates = await self.client.get_updates_async()
+            # Get recent chat history
+            history = await self.client.get_chat_history_async(self.bot_username, limit=5)
 
-            for update in updates:
+            # Look for bot's response after our last message
+            for msg in reversed(history):  # Check newest first
                 if (
-                    update.message
-                    and update.message.chat_id == self.chat_id
-                    and update.message.date > last_message_time
-                    and update.message.from_username == self.client.config.openclaw_bot_username
+                    msg.message_id > self._last_message_id
+                    and msg.from_username  # Message has a sender
+                    and msg.text  # Has text content
                 ):
-                    logger.info(f"Received response: {update.message.text[:50]}...")
-                    return update.message
+                    logger.info(f"Received response from {self.bot_username}: {msg.text[:50]}...")
+                    return msg
 
-            await asyncio.sleep(self.client.config.polling_interval)
+            await asyncio.sleep(polling_interval)
 
         logger.warning(f"Response timeout after {timeout}s")
         return None
@@ -412,22 +349,23 @@ class TelegramSession:
             Response message or None if timeout
         """
         start_time = time.time()
-        last_message_time = self.messages[-1].date if self.messages else 0
+        polling_interval = self.client.config.polling_interval
 
         while time.time() - start_time < timeout:
-            updates = self.client.get_updates_sync()
+            # Get recent chat history
+            history = self.client.get_chat_history_sync(self.bot_username, limit=5)
 
-            for update in updates:
+            # Look for bot's response after our last message
+            for msg in reversed(history):  # Check newest first
                 if (
-                    update.message
-                    and update.message.chat_id == self.chat_id
-                    and update.message.date > last_message_time
-                    and update.message.from_username == self.client.config.openclaw_bot_username
+                    msg.message_id > self._last_message_id
+                    and msg.from_username  # Message has a sender
+                    and msg.text  # Has text content
                 ):
-                    logger.info(f"Received response: {update.message.text[:50]}...")
-                    return update.message
+                    logger.info(f"Received response from {self.bot_username}: {msg.text[:50]}...")
+                    return msg
 
-            time.sleep(self.client.config.polling_interval)
+            time.sleep(polling_interval)
 
         logger.warning(f"Response timeout after {timeout}s")
         return None

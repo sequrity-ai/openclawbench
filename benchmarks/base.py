@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable
 
+from benchmarks.ai_agent import BenchmarkAgent, ConversationResult
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,6 +63,10 @@ class TaskResult:
     response_text: str | None = None
     validation_details: dict[str, Any] = field(default_factory=dict)
     error_message: str | None = None
+    # Multi-turn conversation tracking
+    conversation_turns: int = 1  # Number of turns in conversation (default 1 for single-turn)
+    conversation_history: list[dict[str, Any]] = field(default_factory=list)
+    completion_reason: str = ""  # "goal_achieved", "max_turns", "timeout", "error", "validation"
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -73,6 +79,9 @@ class TaskResult:
             "response_text": self.response_text,
             "validation_details": self.validation_details,
             "error_message": self.error_message,
+            "conversation_turns": self.conversation_turns,
+            "conversation_history": self.conversation_history,
+            "completion_reason": self.completion_reason,
         }
 
 
@@ -153,16 +162,24 @@ class BenchmarkTask:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-def _create_session(client: Any, chat_id: int) -> Any:
-    """Create the appropriate session type based on the client."""
+def _create_session(client: Any, bot_identifier: int | str) -> Any:
+    """Create the appropriate session type based on the client.
+
+    Args:
+        client: Either LocalClient or TelegramClient
+        bot_identifier: For LocalClient: chat_id (int)
+                       For TelegramClient: bot_username (str)
+    """
     from local_client import LocalClient, LocalSession
 
     if isinstance(client, LocalClient):
-        return LocalSession(client, chat_id)
+        # LocalClient expects chat_id (int)
+        return LocalSession(client, bot_identifier)
 
     from telegram_client import TelegramSession
 
-    return TelegramSession(client, chat_id)
+    # TelegramClient expects bot_username (str)
+    return TelegramSession(client, bot_identifier)
 
 
 class ScenarioBase(ABC):
@@ -216,14 +233,40 @@ class ScenarioBase(ABC):
         """
         self.tasks.append(task)
 
+    def _pre_cleanup(self, run_id: str) -> None:
+        """Clean artifacts from previous runs before setup.
+
+        Subclasses should override this to remove scenario-specific artifacts.
+        Default implementation removes the standard workspace directory.
+
+        Args:
+            run_id: Unique identifier for this run (for logging)
+        """
+        import shutil
+        from pathlib import Path
+
+        workspace_dir = Path("/tmp/openclaw_benchmark")
+        if workspace_dir.exists():
+            logger.info(f"[{run_id}] Removing stale workspace: {workspace_dir}")
+            shutil.rmtree(workspace_dir)
+            logger.info(f"[{run_id}] Pre-cleanup complete")
+        else:
+            logger.info(f"[{run_id}] No previous workspace found, skipping pre-cleanup")
+
     async def run_async(
-        self, client: Any, chat_id: int, skip_setup: bool = False, timeout_multiplier: float = 1.0
+        self,
+        client: Any,
+        bot_identifier: int | str,
+        ai_agent: BenchmarkAgent,
+        skip_setup: bool = False,
+        timeout_multiplier: float = 1.0,
     ) -> ScenarioResult:
         """Run the scenario asynchronously.
 
         Args:
-            client: Telegram client
-            chat_id: Chat ID to use
+            client: Client (LocalClient or TelegramClient)
+            bot_identifier: For LocalClient: chat_id (int), For TelegramClient: bot_username (str)
+            ai_agent: BenchmarkAgent for multi-turn conversations (required)
             skip_setup: Skip setup phase
             timeout_multiplier: Multiply all task timeouts by this factor
 
@@ -231,58 +274,102 @@ class ScenarioBase(ABC):
             Scenario result
         """
         start_time = time.time()
-        logger.info(f"Starting scenario: {self.name}")
+        run_id = f"{self.name.replace(' ', '_')}_{int(start_time)}"
+        logger.info(f"[{run_id}] ===== SCENARIO START: {self.name} =====")
+
+        # Pre-cleanup: Remove artifacts from previous runs
+        if not skip_setup:
+            logger.info(f"[{run_id}] Running pre-cleanup...")
+            self._pre_cleanup(run_id)
 
         # Health checks
-        logger.info("Running health checks...")
+        logger.info(f"[{run_id}] Running health checks...")
         health_checks = self.pre_check()
         failed_checks = [check for check in health_checks if not check.passed]
 
         if failed_checks:
-            logger.warning(f"{len(failed_checks)} health check(s) failed")
+            logger.warning(f"[{run_id}] {len(failed_checks)} health check(s) failed")
             for check in failed_checks:
-                logger.warning(f"  - {check.check_name}: {check.message}")
+                logger.warning(f"[{run_id}]   - {check.check_name}: {check.message}")
 
         # Setup
         setup_result = None
         if not skip_setup:
-            logger.info("Running setup...")
+            logger.info(f"[{run_id}] ===== SETUP START =====")
             setup_result = self.setup()
             if not setup_result.succeeded:
-                logger.error(f"Setup failed: {setup_result.message}")
+                logger.error(f"[{run_id}] Setup failed: {setup_result.message}")
                 # Continue anyway to see what happens
+            logger.info(f"[{run_id}] ===== SETUP COMPLETE =====")
 
         # Run tasks
         task_results = []
+        session = _create_session(client, bot_identifier)  # Create session once for all tasks
+
         for i, task in enumerate(self.tasks, 1):
-            logger.info(f"Running task {i}/{len(self.tasks)}: {task.name}")
+            logger.info(f"[{run_id}] ===== TASK {i}/{len(self.tasks)}: {task.name} =====")
             task_start = time.time()
 
             try:
-                session = _create_session(client, chat_id)
+                # Multi-turn conversation mode with AI agent
+                logger.info(f"[{run_id}] Starting multi-turn conversation for task: {task.name}")
+                logger.info(f"[{run_id}] Task description: {task.expected_output_description}")
 
-                # Send prompt and wait for response
-                effective_timeout = task.timeout * timeout_multiplier
-                response = await session.send_message_async(
-                    task.prompt, wait_for_response=True, timeout=effective_timeout
+                # Run the conversation (pass full prompt, not just expected output description)
+                conversation_result: ConversationResult = await ai_agent.run_conversation_async(
+                    task_name=task.name,
+                    task_description=task.prompt,  # Use full prompt with all details
+                    session=session,
                 )
 
-                task_latency = time.time() - task_start
+                task_latency = conversation_result.total_latency
 
-                if response and response.text:
-                    # Validate response
-                    validation_result = task.validation_fn(
-                        response.text, setup_result.setup_data if setup_result else {}
-                    )
+                # Get all bot responses for validation (concatenated)
+                # Use all responses for local validation so validators can check entire conversation
+                all_bot_responses = "\n\n".join(
+                    turn.bot_response for turn in conversation_result.conversation_turns if turn.bot_response
+                )
+                final_response = all_bot_responses if all_bot_responses else None
+
+                # Validate the conversation outcome
+                if conversation_result.success:
+                    # Check if scenario has remote_manager for remote validation
+                    if hasattr(self, 'remote_manager') and self.remote_manager:
+                        # Remote validation: download files and validate
+                        logger.info(f"[{run_id}] Running remote validation for task: {task.name}")
+                        validation_result = self.remote_manager.remote_validate(
+                            task_name=task.name,
+                            validation_fn=task.validation_fn,
+                            setup_data=setup_result.setup_data if setup_result else {},
+                        )
+                    else:
+                        # Local validation: use all bot responses concatenated
+                        validation_result = task.validation_fn(
+                            final_response, setup_result.setup_data if setup_result else {}
+                        )
                     validation_result.latency = task_latency
+                    validation_result.conversation_turns = conversation_result.total_turns
+                    validation_result.conversation_history = [
+                        {
+                            "turn": turn.turn_number,
+                            "user": turn.user_message,
+                            "bot": turn.bot_response,
+                            "timestamp": turn.timestamp,
+                        }
+                        for turn in conversation_result.conversation_turns
+                    ]
+                    validation_result.completion_reason = conversation_result.completion_reason
                     task_results.append(validation_result)
+
                     logger.info(
-                        f"Task completed: success={validation_result.success}, "
+                        f"[{run_id}] Multi-turn task completed: turns={conversation_result.total_turns}, "
+                        f"success={validation_result.success}, "
                         f"accuracy={validation_result.accuracy_score:.1f}, "
-                        f"latency={task_latency:.2f}s"
+                        f"latency={task_latency:.2f}s, "
+                        f"reason={conversation_result.completion_reason}"
                     )
                 else:
-                    # No response or timeout
+                    # Conversation failed
                     task_results.append(
                         TaskResult(
                             task_name=task.name,
@@ -290,14 +377,27 @@ class ScenarioBase(ABC):
                             success=False,
                             latency=task_latency,
                             accuracy_score=0.0,
-                            error_message="No response from bot or timeout",
+                            error_message=conversation_result.error_message or f"Conversation failed: {conversation_result.completion_reason}",
+                            conversation_turns=conversation_result.total_turns,
+                            conversation_history=[
+                                {
+                                    "turn": turn.turn_number,
+                                    "user": turn.user_message,
+                                    "bot": turn.bot_response,
+                                    "timestamp": turn.timestamp,
+                                }
+                                for turn in conversation_result.conversation_turns
+                            ],
+                            completion_reason=conversation_result.completion_reason,
                         )
                     )
-                    logger.error(f"Task failed: No response from bot")
+                    logger.error(
+                        f"[{run_id}] Multi-turn task failed: {conversation_result.error_message or conversation_result.completion_reason}"
+                    )
 
             except Exception as e:
                 task_latency = time.time() - task_start
-                logger.error(f"Task error: {e}")
+                logger.error(f"[{run_id}] Task error: {e}")
                 task_results.append(
                     TaskResult(
                         task_name=task.name,
@@ -310,7 +410,7 @@ class ScenarioBase(ABC):
                 )
 
         # Cleanup
-        logger.info("Running cleanup...")
+        logger.info(f"[{run_id}] Running cleanup...")
         cleanup_success = self.cleanup()
 
         end_time = time.time()
@@ -328,19 +428,27 @@ class ScenarioBase(ABC):
             metadata={"description": self.description, "required_skills": self.required_skills},
         )
 
-        logger.info(f"Scenario completed: {self.name}")
-        logger.info(f"  Tasks passed: {sum(1 for t in task_results if t.success)}/{len(task_results)}")
-        logger.info(f"  Average accuracy: {result.average_accuracy:.1f}%")
-        logger.info(f"  Average latency: {result.average_latency:.2f}s")
+        logger.info(f"[{run_id}] Scenario completed: {self.name}")
+        logger.info(f"[{run_id}]   Tasks passed: {sum(1 for t in task_results if t.success)}/{len(task_results)}")
+        logger.info(f"[{run_id}]   Average accuracy: {result.average_accuracy:.1f}%")
+        logger.info(f"[{run_id}]   Average latency: {result.average_latency:.2f}s")
 
         return result
 
-    def run_sync(self, client: Any, chat_id: int, skip_setup: bool = False, timeout_multiplier: float = 1.0) -> ScenarioResult:
+    def run_sync(
+        self,
+        client: Any,
+        bot_identifier: int | str,
+        ai_agent: BenchmarkAgent,
+        skip_setup: bool = False,
+        timeout_multiplier: float = 1.0,
+    ) -> ScenarioResult:
         """Run the scenario synchronously.
 
         Args:
-            client: Telegram client
-            chat_id: Chat ID to use
+            client: Client (LocalClient or TelegramClient)
+            bot_identifier: For LocalClient: chat_id (int), For TelegramClient: bot_username (str)
+            ai_agent: BenchmarkAgent for multi-turn conversations (required)
             skip_setup: Skip setup phase
             timeout_multiplier: Multiply all task timeouts by this factor
 
@@ -348,54 +456,106 @@ class ScenarioBase(ABC):
             Scenario result
         """
         start_time = time.time()
-        logger.info(f"Starting scenario: {self.name}")
+        run_id = f"{self.name.replace(' ', '_')}_{int(start_time)}"
+        logger.info(f"[{run_id}] ===== SCENARIO START: {self.name} =====")
+
+        # Pre-cleanup: Remove artifacts from previous runs
+        if not skip_setup:
+            logger.info(f"[{run_id}] Running pre-cleanup...")
+            self._pre_cleanup(run_id)
 
         # Health checks
-        logger.info("Running health checks...")
+        logger.info(f"[{run_id}] Running health checks...")
         health_checks = self.pre_check()
         failed_checks = [check for check in health_checks if not check.passed]
 
         if failed_checks:
-            logger.warning(f"{len(failed_checks)} health check(s) failed")
+            logger.warning(f"[{run_id}] {len(failed_checks)} health check(s) failed")
             for check in failed_checks:
-                logger.warning(f"  - {check.check_name}: {check.message}")
+                logger.warning(f"[{run_id}]   - {check.check_name}: {check.message}")
 
         # Setup
         setup_result = None
         if not skip_setup:
-            logger.info("Running setup...")
+            logger.info(f"[{run_id}] ===== SETUP START =====")
             setup_result = self.setup()
             if not setup_result.succeeded:
-                logger.error(f"Setup failed: {setup_result.message}")
+                logger.error(f"[{run_id}] Setup failed: {setup_result.message}")
+            logger.info(f"[{run_id}] ===== SETUP COMPLETE =====")
 
         # Run tasks
         task_results = []
+        session = _create_session(client, bot_identifier)  # Create session once for all tasks
         for i, task in enumerate(self.tasks, 1):
-            logger.info(f"Running task {i}/{len(self.tasks)}: {task.name}")
+            logger.info(f"[{run_id}] ===== TASK {i}/{len(self.tasks)}: {task.name} =====")
             task_start = time.time()
 
             try:
-                session = _create_session(client, chat_id)
+                # Multi-turn conversation mode with AI agent (sync wrapper)
+                logger.info(f"[{run_id}] Starting multi-turn conversation for task: {task.name}")
 
-                effective_timeout = task.timeout * timeout_multiplier
-                response = session.send_message_sync(
-                    task.prompt, wait_for_response=True, timeout=effective_timeout
+                # Run the conversation using sync wrapper
+                conversation_result: ConversationResult = ai_agent.run_conversation_sync(
+                    task_name=task.name,
+                    task_description=task.expected_output_description,
+                    session=session,
                 )
 
-                task_latency = time.time() - task_start
+                task_latency = conversation_result.total_latency
 
-                if response and response.text:
-                    validation_result = task.validation_fn(
-                        response.text, setup_result.setup_data if setup_result else {}
-                    )
+                # Get all bot responses for validation (concatenated)
+                # Use all responses for local validation so validators can check entire conversation
+                all_bot_responses = "\n\n".join(
+                    turn.bot_response for turn in conversation_result.conversation_turns if turn.bot_response
+                )
+                final_response = all_bot_responses if all_bot_responses else None
+
+                # Validate the conversation outcome
+                if conversation_result.success:
+                    # Check if scenario has remote_manager for remote validation
+                    if hasattr(self, 'remote_manager') and self.remote_manager:
+                        # Remote validation: download files and validate
+                        logger.info(f"[{run_id}] Running remote validation for task: {task.name}")
+                        validation_result = self.remote_manager.remote_validate(
+                            task_name=task.name,
+                            validation_fn=task.validation_fn,
+                            setup_data=setup_result.setup_data if setup_result else {},
+                        )
+                    else:
+                        # Local validation: use all bot responses concatenated
+                        validation_result = task.validation_fn(
+                            final_response, setup_result.setup_data if setup_result else {}
+                        )
                     validation_result.latency = task_latency
+                    validation_result.conversation_turns = conversation_result.total_turns
+                    validation_result.conversation_history = [
+                        {
+                            "turn": turn.turn_number,
+                            "user": turn.user_message,
+                            "bot": turn.bot_response,
+                            "timestamp": turn.timestamp,
+                        }
+                        for turn in conversation_result.conversation_turns
+                    ]
+                    validation_result.completion_reason = conversation_result.completion_reason
                     task_results.append(validation_result)
+
                     logger.info(
-                        f"Task completed: success={validation_result.success}, "
-                        f"accuracy={validation_result.accuracy_score:.1f}, "
+                        f"[{run_id}] Task completed: {conversation_result.total_turns} turns, "
+                        f"success={validation_result.success}, "
+                        f"accuracy={validation_result.accuracy_score:.1f}%, "
+                        f"completion={conversation_result.completion_reason}, "
                         f"latency={task_latency:.2f}s"
                     )
+                    if validation_result.validation_details:
+                        logger.info(f"[{run_id}] Validation details: {validation_result.validation_details}")
                 else:
+                    # Conversation failed or no final response
+                    error_msg = (
+                        conversation_result.error_message
+                        if conversation_result.error_message
+                        else f"Conversation ended: {conversation_result.completion_reason}"
+                    )
                     task_results.append(
                         TaskResult(
                             task_name=task.name,
@@ -403,14 +563,28 @@ class ScenarioBase(ABC):
                             success=False,
                             latency=task_latency,
                             accuracy_score=0.0,
-                            error_message="No response from bot or timeout",
+                            error_message=error_msg,
+                            conversation_turns=conversation_result.total_turns,
+                            conversation_history=[
+                                {
+                                    "turn": turn.turn_number,
+                                    "user": turn.user_message,
+                                    "bot": turn.bot_response,
+                                    "timestamp": turn.timestamp,
+                                }
+                                for turn in conversation_result.conversation_turns
+                            ],
+                            completion_reason=conversation_result.completion_reason,
                         )
                     )
-                    logger.error(f"Task failed: No response from bot")
+                    logger.error(
+                        f"[{run_id}] Task failed: {conversation_result.total_turns} turns, "
+                        f"completion={conversation_result.completion_reason}, error={error_msg}"
+                    )
 
             except Exception as e:
                 task_latency = time.time() - task_start
-                logger.error(f"Task error: {e}")
+                logger.error(f"[{run_id}] Task error: {e}")
                 task_results.append(
                     TaskResult(
                         task_name=task.name,
@@ -423,7 +597,7 @@ class ScenarioBase(ABC):
                 )
 
         # Cleanup
-        logger.info("Running cleanup...")
+        logger.info(f"[{run_id}] Running cleanup...")
         cleanup_success = self.cleanup()
 
         end_time = time.time()
@@ -441,9 +615,9 @@ class ScenarioBase(ABC):
             metadata={"description": self.description, "required_skills": self.required_skills},
         )
 
-        logger.info(f"Scenario completed: {self.name}")
-        logger.info(f"  Tasks passed: {sum(1 for t in task_results if t.success)}/{len(task_results)}")
-        logger.info(f"  Average accuracy: {result.average_accuracy:.1f}%")
-        logger.info(f"  Average latency: {result.average_latency:.2f}s")
+        logger.info(f"[{run_id}] Scenario completed: {self.name}")
+        logger.info(f"[{run_id}]   Tasks passed: {sum(1 for t in task_results if t.success)}/{len(task_results)}")
+        logger.info(f"[{run_id}]   Average accuracy: {result.average_accuracy:.1f}%")
+        logger.info(f"[{run_id}]   Average latency: {result.average_latency:.2f}s")
 
         return result
