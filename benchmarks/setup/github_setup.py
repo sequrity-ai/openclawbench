@@ -1,5 +1,6 @@
 """GitHub API setup helper for GitHub benchmark scenario."""
 
+import base64
 import logging
 import requests
 from typing import Any
@@ -24,6 +25,11 @@ class GitHubSetup:
             "Accept": "application/vnd.github.v3+json",
         }
         self.test_issue_numbers: list[int] = []  # Track test issues for cleanup
+        self.seeded_files: list[str] = []  # Track seeded file paths for cleanup
+        self.seeded_branch: str | None = None  # Track seeded branch for cleanup
+        self.seeded_pr_number: int | None = None  # Track seeded PR for cleanup
+        self.seeded_release_id: int | None = None  # Track seeded release for cleanup
+        self.seeded_tag: str | None = None  # Track seeded tag for cleanup
 
     def _make_request(
         self, method: str, endpoint: str, json_data: dict[str, Any] | None = None, params: dict[str, Any] | None = None
@@ -160,6 +166,256 @@ class GitHubSetup:
         self.test_issue_numbers.clear()
         logger.info(f"Cleanup complete: closed {closed_count} test issues")
         return closed_count
+
+    def seed_repo_data(self, repo_owner: str, repo_name: str) -> dict[str, Any]:
+        """Seed the repository with commits, a PR branch, and a release.
+
+        Creates:
+        - 5 files on the default branch (5 commits, with async function content)
+        - 1 branch with 1 additional commit (for PR)
+        - 1 open PR from that branch
+        - 1 release tag (v1.0.0-benchmark)
+
+        Args:
+            repo_owner: Repository owner username
+            repo_name: Repository name
+
+        Returns:
+            Dict with seeded data info
+        """
+        import time
+
+        seed_info: dict[str, Any] = {}
+
+        # Get default branch
+        repo_info = self.get_repo_info(repo_owner, repo_name)
+        default_branch = repo_info.get("default_branch", "main")
+
+        # --- Step 1: Create 5 files on main (5 commits) ---
+        files = [
+            {
+                "path": "src/utils.js",
+                "message": "Add utility functions",
+                "content": (
+                    "// Utility functions\n\n"
+                    "async function fetchData(url) {\n"
+                    "  const response = await fetch(url);\n"
+                    "  return response.json();\n"
+                    "}\n\n"
+                    "async function processItems(items) {\n"
+                    "  return items.map(item => item.toString());\n"
+                    "}\n\n"
+                    "module.exports = { fetchData, processItems };\n"
+                ),
+            },
+            {
+                "path": "src/api.js",
+                "message": "Add API client module",
+                "content": (
+                    "// API client\n\n"
+                    "async function getUser(id) {\n"
+                    "  return fetchData(`/api/users/${id}`);\n"
+                    "}\n\n"
+                    "async function listPosts() {\n"
+                    "  return fetchData('/api/posts');\n"
+                    "}\n\n"
+                    "module.exports = { getUser, listPosts };\n"
+                ),
+            },
+            {
+                "path": "src/index.js",
+                "message": "Add main entry point",
+                "content": (
+                    "const { fetchData } = require('./utils');\n"
+                    "const { getUser } = require('./api');\n\n"
+                    "async function main() {\n"
+                    "  console.log('OpenClaw sandbox project');\n"
+                    "}\n\n"
+                    "main();\n"
+                ),
+            },
+            {
+                "path": "README.md",
+                "message": "Add README",
+                "content": (
+                    "# openclaw-sandbox\n\n"
+                    "Benchmark test repository for OpenClaw AI agent.\n\n"
+                    "## Features\n"
+                    "- Async function utilities\n"
+                    "- API client\n"
+                    "- Main entry point\n"
+                ),
+            },
+            {
+                "path": "package.json",
+                "message": "Add package.json",
+                "content": (
+                    '{\n  "name": "openclaw-sandbox",\n'
+                    '  "version": "1.0.0",\n'
+                    '  "description": "Benchmark test repo",\n'
+                    '  "main": "src/index.js"\n}\n'
+                ),
+            },
+        ]
+
+        for file_info in files:
+            content_b64 = base64.b64encode(file_info["content"].encode()).decode()
+            endpoint = f"repos/{repo_owner}/{repo_name}/contents/{file_info['path']}"
+            try:
+                self._make_request("PUT", endpoint, json_data={
+                    "message": file_info["message"],
+                    "content": content_b64,
+                })
+                self.seeded_files.append(file_info["path"])
+                logger.info(f"Created file {file_info['path']}")
+                time.sleep(0.5)  # Avoid rate limiting
+            except requests.HTTPError as e:
+                logger.warning(f"Failed to create {file_info['path']}: {e}")
+
+        seed_info["files_created"] = len(self.seeded_files)
+
+        # --- Step 2: Get the SHA of the default branch HEAD ---
+        try:
+            ref_data = self._make_request("GET", f"repos/{repo_owner}/{repo_name}/git/refs/heads/{default_branch}")
+            head_sha = ref_data["object"]["sha"]
+
+            # Create feature branch
+            branch_name = "feature/benchmark-pr-branch"
+            self._make_request("POST", f"repos/{repo_owner}/{repo_name}/git/refs", json_data={
+                "ref": f"refs/heads/{branch_name}",
+                "sha": head_sha,
+            })
+            self.seeded_branch = branch_name
+            logger.info(f"Created branch {branch_name}")
+
+            # Add a file on the feature branch
+            pr_file_content = base64.b64encode(
+                "// Feature: improved error handling\nasync function handleError(err) {\n  console.error(err);\n}\n".encode()
+            ).decode()
+            self._make_request("PUT", f"repos/{repo_owner}/{repo_name}/contents/src/error_handler.js", json_data={
+                "message": "Add error handler feature",
+                "content": pr_file_content,
+                "branch": branch_name,
+            })
+            self.seeded_files.append("src/error_handler.js (on feature branch)")
+            logger.info("Created file on feature branch")
+
+            # --- Step 3: Open a PR ---
+            pr_data = self._make_request("POST", f"repos/{repo_owner}/{repo_name}/pulls", json_data={
+                "title": "[BENCHMARK] Add error handler feature",
+                "body": "This PR adds improved error handling for async functions.",
+                "head": branch_name,
+                "base": default_branch,
+            })
+            self.seeded_pr_number = pr_data.get("number")
+            seed_info["pr_number"] = self.seeded_pr_number
+            logger.info(f"Created PR #{self.seeded_pr_number}")
+
+        except requests.HTTPError as e:
+            logger.warning(f"Failed to create branch/PR: {e}")
+
+        # --- Step 4: Create a release ---
+        try:
+            # Create a lightweight tag via releases API (it creates the tag automatically)
+            release_data = self._make_request("POST", f"repos/{repo_owner}/{repo_name}/releases", json_data={
+                "tag_name": "v1.0.0-benchmark",
+                "target_commitish": default_branch,
+                "name": "v1.0.0 - Initial Release",
+                "body": "First benchmark release. Includes async utility functions and API client.",
+                "draft": False,
+                "prerelease": False,
+            })
+            self.seeded_release_id = release_data.get("id")
+            self.seeded_tag = "v1.0.0-benchmark"
+            seed_info["release_id"] = self.seeded_release_id
+            seed_info["release_tag"] = self.seeded_tag
+            logger.info(f"Created release {self.seeded_tag} (id={self.seeded_release_id})")
+        except requests.HTTPError as e:
+            logger.warning(f"Failed to create release: {e}")
+
+        return seed_info
+
+    def cleanup_seeded_data(self, repo_owner: str, repo_name: str) -> None:
+        """Remove all data seeded by seed_repo_data().
+
+        Deletes files on main, the PR branch, the PR (close it), and the release/tag.
+
+        Args:
+            repo_owner: Repository owner username
+            repo_name: Repository name
+        """
+        # Close PR first (can't delete a branch with open PR unless we close it)
+        if self.seeded_pr_number:
+            try:
+                self._make_request(
+                    "PATCH",
+                    f"repos/{repo_owner}/{repo_name}/pulls/{self.seeded_pr_number}",
+                    json_data={"state": "closed"},
+                )
+                logger.info(f"Closed PR #{self.seeded_pr_number}")
+            except requests.HTTPError as e:
+                logger.warning(f"Failed to close PR #{self.seeded_pr_number}: {e}")
+            self.seeded_pr_number = None
+
+        # Delete feature branch
+        if self.seeded_branch:
+            try:
+                self._make_request(
+                    "DELETE",
+                    f"repos/{repo_owner}/{repo_name}/git/refs/heads/{self.seeded_branch}",
+                )
+                logger.info(f"Deleted branch {self.seeded_branch}")
+            except requests.HTTPError as e:
+                logger.warning(f"Failed to delete branch {self.seeded_branch}: {e}")
+            self.seeded_branch = None
+
+        # Delete release
+        if self.seeded_release_id:
+            try:
+                self._make_request(
+                    "DELETE",
+                    f"repos/{repo_owner}/{repo_name}/releases/{self.seeded_release_id}",
+                )
+                logger.info(f"Deleted release {self.seeded_release_id}")
+            except requests.HTTPError as e:
+                logger.warning(f"Failed to delete release {self.seeded_release_id}: {e}")
+            self.seeded_release_id = None
+
+        # Delete tag
+        if self.seeded_tag:
+            try:
+                self._make_request(
+                    "DELETE",
+                    f"repos/{repo_owner}/{repo_name}/git/refs/tags/{self.seeded_tag}",
+                )
+                logger.info(f"Deleted tag {self.seeded_tag}")
+            except requests.HTTPError as e:
+                logger.warning(f"Failed to delete tag {self.seeded_tag}: {e}")
+            self.seeded_tag = None
+
+        # Delete files on main branch (need SHA of each file to delete)
+        main_files = [f for f in self.seeded_files if "feature branch" not in f]
+        for file_path in main_files:
+            try:
+                file_data = self._make_request(
+                    "GET",
+                    f"repos/{repo_owner}/{repo_name}/contents/{file_path}",
+                )
+                file_sha = file_data.get("sha")
+                if file_sha:
+                    self._make_request(
+                        "DELETE",
+                        f"repos/{repo_owner}/{repo_name}/contents/{file_path}",
+                        json_data={
+                            "message": f"Remove benchmark seed file: {file_path}",
+                            "sha": file_sha,
+                        },
+                    )
+                    logger.info(f"Deleted file {file_path}")
+            except requests.HTTPError as e:
+                logger.warning(f"Failed to delete {file_path}: {e}")
+
+        self.seeded_files.clear()
 
     def verify_api_access(self, repo_owner: str, repo_name: str) -> bool:
         """Verify GitHub API is accessible with the provided token.

@@ -49,13 +49,14 @@ class WebScenario(ScenarioBase):
         )
 
         self.validator = WebValidator()
+        self.remote_manager = remote_manager
         self.setup_data = {}
 
         # Define tasks
         self._define_tasks()
 
     def _define_tasks(self) -> None:
-        """Define the 3 Web Search tasks with progressive complexity."""
+        """Define the 9 Web Search tasks with progressive complexity."""
 
         # Task 1: Factual Search - Simple fact-finding
         self.add_task(
@@ -105,10 +106,95 @@ class WebScenario(ScenarioBase):
             )
         )
 
+        # Task 4: Multi-Query Search - Search for multiple topics
+        self.add_task(
+            BenchmarkTask(
+                name="Multi-Query Search",
+                prompt=(
+                    "Search for both 'Python async programming' and 'FastAPI tutorials'"
+                ),
+                expected_output_description="Bot searches for both topics and reports results mentioning Python, async, and FastAPI",
+                validation_fn=self.validator.validate_multi_query_search,
+                timeout=60.0,
+                metadata={"difficulty": "medium", "category": "multi_query"},
+            )
+        )
+
+        # Task 5: Domain-Specific Search - Search within a specific domain
+        self.add_task(
+            BenchmarkTask(
+                name="Domain-Specific Search",
+                prompt=(
+                    "Find recent articles about AI on techcrunch.com"
+                ),
+                expected_output_description="Bot finds and reports AI articles from TechCrunch",
+                validation_fn=self.validator.validate_domain_specific_search,
+                timeout=60.0,
+                metadata={"difficulty": "medium", "category": "domain_search"},
+            )
+        )
+
+        # Task 6: News Search - Search for latest news
+        self.add_task(
+            BenchmarkTask(
+                name="News Search",
+                prompt=(
+                    "What are the latest news about climate change?"
+                ),
+                expected_output_description="Bot retrieves and summarizes recent climate change news",
+                validation_fn=self.validator.validate_news_search,
+                timeout=60.0,
+                metadata={"difficulty": "medium", "category": "news_search"},
+            )
+        )
+
+        # Task 7: Time-Filtered Search - Search with recency constraint
+        self.add_task(
+            BenchmarkTask(
+                name="Time-Filtered Search",
+                prompt=(
+                    "Find articles about OpenAI published in the last week"
+                ),
+                expected_output_description="Bot finds recent OpenAI articles and reports time-relevant results",
+                validation_fn=self.validator.validate_time_filtered_search,
+                timeout=75.0,
+                metadata={"difficulty": "hard", "category": "time_filtered"},
+            )
+        )
+
+        # Task 8: Search Comparison - Compare search result volumes
+        self.add_task(
+            BenchmarkTask(
+                name="Search Comparison",
+                prompt=(
+                    "Search for 'React' vs 'Vue' and tell me which has more results"
+                ),
+                expected_output_description="Bot searches both frameworks, compares results, and declares one more prominent",
+                validation_fn=self.validator.validate_search_comparison,
+                timeout=75.0,
+                metadata={"difficulty": "hard", "category": "search_comparison"},
+            )
+        )
+
+        # Task 9: Topic Analysis - Summarize topics from search results
+        self.add_task(
+            BenchmarkTask(
+                name="Topic Analysis",
+                prompt=(
+                    "Search for 'machine learning' and summarize the main topics from the top results"
+                ),
+                expected_output_description="Bot searches machine learning, analyzes top results, and provides topic summary",
+                validation_fn=self.validator.validate_topic_analysis,
+                timeout=75.0,
+                metadata={"difficulty": "hard", "category": "topic_analysis"},
+            )
+        )
+
     def pre_check(self) -> list[HealthCheckResult]:
         """Run pre-flight health checks."""
         # Check for Tavily search skill
-        checks = check_skills(self.required_skills)
+        local_mode = self.remote_manager is None
+        checks = check_skills(self.required_skills, local_mode=local_mode, remote_manager=self.remote_manager)
 
         # Note: We don't verify Tavily API access directly since it's configured
         # in the bot, not in the benchmark client

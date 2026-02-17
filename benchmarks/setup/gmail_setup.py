@@ -90,7 +90,12 @@ class GmailSetup:
         return response.json() if response.content else {}
 
     def send_test_email(
-        self, to: str, subject: str, body: str, from_address: str | None = None
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        from_address: str | None = None,
+        from_display_name: str | None = None,
     ) -> str:
         """Send a test email via Gmail API.
 
@@ -98,7 +103,12 @@ class GmailSetup:
             to: Recipient email address
             subject: Email subject
             body: Email body text
-            from_address: Sender email (defaults to 'me')
+            from_address: Sender email address (defaults to the authenticated account)
+            from_display_name: Optional display name or address shown in the From header.
+                When provided without from_address, the display name is embedded in the
+                From header so the recipient can see it (e.g. "support@example.com").
+                This is used by Task 5 to simulate an email that appears to come from
+                support@example.com even though it is sent via the benchmark account.
 
         Returns:
             Email ID of sent message
@@ -112,6 +122,9 @@ class GmailSetup:
         message["subject"] = subject
         if from_address:
             message["from"] = from_address
+        elif from_display_name:
+            # Embed display name in the From header without changing the actual sender
+            message["from"] = from_display_name
 
         # Encode message in base64url format
         raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")

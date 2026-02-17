@@ -175,3 +175,353 @@ class GmailValidator:
             validation_details=validation_details,
             error_message=error_message,
         )
+
+    @staticmethod
+    def validate_count_unread(response: str, setup_data: dict[str, Any]) -> TaskResult:
+        """Validate Task 4: Count unread emails.
+
+        Expected: Bot reports a numeric count of unread emails and uses
+        relevant terms ("unread", "emails", a number or "no").
+        """
+        success = False
+        accuracy_score = 0.0
+        validation_details: dict[str, Any] = {}
+        error_message = None
+
+        try:
+            response_lower = response.lower()
+
+            # Must mention "unread" and "email" (or "inbox")
+            has_unread = "unread" in response_lower
+            has_email_ref = "email" in response_lower or "inbox" in response_lower
+            # Must contain a digit or explicit "no" / "zero" / "none"
+            has_count = bool(re.search(r"\d+", response_lower)) or any(
+                word in response_lower for word in ("no unread", "zero", "none", "0")
+            )
+
+            validation_details["has_unread_keyword"] = has_unread
+            validation_details["has_email_reference"] = has_email_ref
+            validation_details["has_count"] = has_count
+
+            if has_unread and has_email_ref and has_count:
+                success = True
+                accuracy_score = 100.0
+            elif has_unread and has_email_ref:
+                accuracy_score = 60.0
+                error_message = "Response mentions unread emails but does not include a count"
+            elif has_unread:
+                accuracy_score = 30.0
+                error_message = "Response mentions 'unread' but lacks email context and count"
+            else:
+                accuracy_score = 0.0
+                error_message = "Response does not mention 'unread' emails"
+
+        except Exception as e:
+            error_message = f"Validation error: {str(e)}"
+
+        return TaskResult(
+            task_name="Count Unread",
+            prompt="How many unread emails do I have?",
+            success=success,
+            latency=0.0,
+            accuracy_score=accuracy_score,
+            response_text=response,
+            validation_details=validation_details,
+            error_message=error_message,
+        )
+
+    @staticmethod
+    def validate_search_by_sender(response: str, setup_data: dict[str, Any]) -> TaskResult:
+        """Validate Task 5: Search emails by sender.
+
+        Expected: Bot found the test email sent from support@example.com and
+        reports at least the sender address or subject in its response.
+        """
+        sender_email = setup_data.get("sender_search_email", "support@example.com")
+        sender_subject = setup_data.get("sender_search_subject", "")
+
+        success = False
+        accuracy_score = 0.0
+        validation_details: dict[str, Any] = {
+            "expected_sender": sender_email,
+            "expected_subject": sender_subject,
+        }
+        error_message = None
+
+        try:
+            response_lower = response.lower()
+
+            has_sender = sender_email.lower() in response_lower
+            has_subject = sender_subject and sender_subject.lower() in response_lower
+            has_email_ref = "email" in response_lower or "message" in response_lower or "found" in response_lower
+
+            validation_details["has_sender"] = has_sender
+            validation_details["has_subject"] = bool(has_subject)
+            validation_details["has_email_reference"] = has_email_ref
+
+            if has_sender and has_subject:
+                success = True
+                accuracy_score = 100.0
+            elif has_sender and has_email_ref:
+                success = True
+                accuracy_score = 80.0
+            elif has_sender:
+                accuracy_score = 50.0
+                error_message = "Found sender address but response lacks email context"
+            else:
+                accuracy_score = 0.0
+                error_message = f"Response does not mention expected sender '{sender_email}'"
+
+        except Exception as e:
+            error_message = f"Validation error: {str(e)}"
+
+        return TaskResult(
+            task_name="Search by Sender",
+            prompt="Find emails from support@example.com",
+            success=success,
+            latency=0.0,
+            accuracy_score=accuracy_score,
+            response_text=response,
+            validation_details=validation_details,
+            error_message=error_message,
+        )
+
+    @staticmethod
+    def validate_label_management(response: str, setup_data: dict[str, Any]) -> TaskResult:
+        """Validate Task 6: Create a Gmail label.
+
+        Expected: Bot confirms the label "Important Projects" was created,
+        using relevant terms like "label", "created", "Important Projects".
+        """
+        expected_label = setup_data.get("new_label_name", "Important Projects")
+
+        success = False
+        accuracy_score = 0.0
+        validation_details: dict[str, Any] = {"expected_label": expected_label}
+        error_message = None
+
+        try:
+            response_lower = response.lower()
+            expected_label_lower = expected_label.lower()
+
+            has_label_keyword = "label" in response_lower
+            has_label_name = expected_label_lower in response_lower
+            has_created_keyword = any(
+                word in response_lower
+                for word in ("created", "added", "made", "successfully", "new label")
+            )
+
+            validation_details["has_label_keyword"] = has_label_keyword
+            validation_details["has_label_name"] = has_label_name
+            validation_details["has_created_keyword"] = has_created_keyword
+
+            if has_label_name and has_created_keyword:
+                success = True
+                accuracy_score = 100.0
+            elif has_label_name and has_label_keyword:
+                success = True
+                accuracy_score = 80.0
+            elif has_label_keyword and has_created_keyword:
+                accuracy_score = 40.0
+                error_message = f"Mentions label creation but does not name '{expected_label}'"
+            else:
+                accuracy_score = 0.0
+                error_message = f"Response does not confirm creation of label '{expected_label}'"
+
+        except Exception as e:
+            error_message = f"Validation error: {str(e)}"
+
+        return TaskResult(
+            task_name="Label Management",
+            prompt="Create a label called 'Important Projects'",
+            success=success,
+            latency=0.0,
+            accuracy_score=accuracy_score,
+            response_text=response,
+            validation_details=validation_details,
+            error_message=error_message,
+        )
+
+    @staticmethod
+    def validate_email_with_attachment(response: str, setup_data: dict[str, Any]) -> TaskResult:
+        """Validate Task 7: Find emails with PDF attachments from last week.
+
+        Expected: Bot reports at least the test email containing a PDF attachment
+        and uses relevant terms: "pdf", "attachment", a recent date or "last week".
+        """
+        attachment_subject = setup_data.get("attachment_email_subject", "")
+
+        success = False
+        accuracy_score = 0.0
+        validation_details: dict[str, Any] = {"expected_subject": attachment_subject}
+        error_message = None
+
+        try:
+            response_lower = response.lower()
+
+            has_pdf = "pdf" in response_lower
+            has_attachment = "attachment" in response_lower or "attached" in response_lower
+            has_subject = attachment_subject and attachment_subject.lower() in response_lower
+            has_result = any(
+                word in response_lower
+                for word in ("found", "email", "message", "result", "here")
+            )
+
+            validation_details["has_pdf_keyword"] = has_pdf
+            validation_details["has_attachment_keyword"] = has_attachment
+            validation_details["has_subject"] = bool(has_subject)
+            validation_details["has_result_context"] = has_result
+
+            if has_pdf and has_attachment and has_subject:
+                success = True
+                accuracy_score = 100.0
+            elif has_pdf and has_attachment and has_result:
+                success = True
+                accuracy_score = 80.0
+            elif has_pdf and has_attachment:
+                accuracy_score = 50.0
+                error_message = "Mentions PDF attachment but result context is unclear"
+            elif has_pdf or has_attachment:
+                accuracy_score = 20.0
+                error_message = "Partial mention of PDF/attachment but incomplete response"
+            else:
+                accuracy_score = 0.0
+                error_message = "Response does not mention PDF attachments"
+
+        except Exception as e:
+            error_message = f"Validation error: {str(e)}"
+
+        return TaskResult(
+            task_name="Email with Attachment",
+            prompt="Find emails with PDF attachments from last week",
+            success=success,
+            latency=0.0,
+            accuracy_score=accuracy_score,
+            response_text=response,
+            validation_details=validation_details,
+            error_message=error_message,
+        )
+
+    @staticmethod
+    def validate_draft_email(response: str, setup_data: dict[str, Any]) -> TaskResult:
+        """Validate Task 8: Draft an email about Q1 results.
+
+        Expected: Bot confirms a draft was created/saved, mentioning
+        the recipient (team@example.com) and subject or "Q1".
+        """
+        draft_recipient = setup_data.get("draft_recipient", "team@example.com")
+
+        success = False
+        accuracy_score = 0.0
+        validation_details: dict[str, Any] = {"expected_recipient": draft_recipient}
+        error_message = None
+
+        try:
+            response_lower = response.lower()
+
+            has_draft = "draft" in response_lower
+            has_recipient = draft_recipient.lower() in response_lower
+            has_q1 = "q1" in response_lower or "quarter" in response_lower or "results" in response_lower
+            has_created = any(
+                word in response_lower
+                for word in ("created", "saved", "drafted", "composed", "written")
+            )
+
+            validation_details["has_draft_keyword"] = has_draft
+            validation_details["has_recipient"] = has_recipient
+            validation_details["has_q1_reference"] = has_q1
+            validation_details["has_created_keyword"] = has_created
+
+            if has_draft and has_recipient and has_q1:
+                success = True
+                accuracy_score = 100.0
+            elif has_draft and (has_recipient or has_q1) and has_created:
+                success = True
+                accuracy_score = 80.0
+            elif has_draft and has_created:
+                accuracy_score = 50.0
+                error_message = "Draft confirmed but missing recipient or Q1 reference"
+            elif has_draft:
+                accuracy_score = 25.0
+                error_message = "Mentions draft but lacks confirmation of creation"
+            else:
+                accuracy_score = 0.0
+                error_message = "Response does not confirm draft creation"
+
+        except Exception as e:
+            error_message = f"Validation error: {str(e)}"
+
+        return TaskResult(
+            task_name="Draft Email",
+            prompt="Draft an email to team@example.com about Q1 results",
+            success=success,
+            latency=0.0,
+            accuracy_score=accuracy_score,
+            response_text=response,
+            validation_details=validation_details,
+            error_message=error_message,
+        )
+
+    @staticmethod
+    def validate_email_summary(response: str, setup_data: dict[str, Any]) -> TaskResult:
+        """Validate Task 9: Summarize the last 5 emails.
+
+        Expected: Bot provides a summary referencing multiple emails and
+        uses terms like "summary", "inbox", "email(s)", and ideally
+        mentions at least one of the seeded test subjects.
+        """
+        summary_subjects = setup_data.get("summary_email_subjects", [])
+
+        success = False
+        accuracy_score = 0.0
+        validation_details: dict[str, Any] = {"expected_subjects": summary_subjects}
+        error_message = None
+
+        try:
+            response_lower = response.lower()
+
+            has_summary = any(
+                word in response_lower
+                for word in ("summary", "summarize", "overview", "here are", "below are")
+            )
+            has_email_ref = "email" in response_lower or "inbox" in response_lower or "message" in response_lower
+            # Check if response mentions a numeric count (5, four, three, etc.)
+            has_count = bool(re.search(r"\b[1-9]\b|\bfive\b|\bfour\b|\bthree\b|\btwo\b|\bone\b", response_lower))
+            # Count how many seeded subjects appear in the response
+            matched_subjects = [s for s in summary_subjects if s.lower() in response_lower]
+
+            validation_details["has_summary_keyword"] = has_summary
+            validation_details["has_email_reference"] = has_email_ref
+            validation_details["has_count"] = has_count
+            validation_details["matched_subjects"] = matched_subjects
+            validation_details["matched_subjects_count"] = len(matched_subjects)
+
+            if has_summary and has_email_ref and len(matched_subjects) >= 1:
+                success = True
+                accuracy_score = 100.0
+            elif has_summary and has_email_ref and has_count:
+                success = True
+                accuracy_score = 80.0
+            elif has_summary and has_email_ref:
+                accuracy_score = 50.0
+                error_message = "Provides a summary but does not reference expected email content"
+            elif has_email_ref:
+                accuracy_score = 20.0
+                error_message = "References emails but does not appear to summarize them"
+            else:
+                accuracy_score = 0.0
+                error_message = "Response does not summarize inbox emails"
+
+        except Exception as e:
+            error_message = f"Validation error: {str(e)}"
+
+        return TaskResult(
+            task_name="Email Summary",
+            prompt="Summarize the last 5 emails in my inbox",
+            success=success,
+            latency=0.0,
+            accuracy_score=accuracy_score,
+            response_text=response,
+            validation_details=validation_details,
+            error_message=error_message,
+        )

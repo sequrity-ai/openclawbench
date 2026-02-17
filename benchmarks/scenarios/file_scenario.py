@@ -39,7 +39,7 @@ class FileScenario(ScenarioBase):
         self._define_tasks()
 
     def _define_tasks(self) -> None:
-        """Define the 3 file manipulation tasks with progressive complexity."""
+        """Define the 9 file manipulation tasks with progressive complexity."""
 
         # Task 1: File Organization - Create directory structure
         self.add_task(
@@ -97,9 +97,125 @@ class FileScenario(ScenarioBase):
             )
         )
 
+        # Task 4: Recursive File Search - Find files matching pattern
+        self.add_task(
+            BenchmarkTask(
+                name="Recursive File Search",
+                prompt=(
+                    f"Find all .log files recursively under {self.file_setup.workspace_dir}/logs/. "
+                    f"Create a summary file named 'log_summary.txt' in {self.file_setup.workspace_dir} "
+                    "that lists each log file with its path and size. "
+                    "The summary should include all .log files found in any subdirectory."
+                ),
+                expected_output_description="log_summary.txt listing all .log files with paths",
+                validation_fn=self.validator.validate_recursive_search,
+                timeout=90.0,
+                metadata={"difficulty": "medium", "category": "file_search"},
+            )
+        )
+
+        # Task 5: Data Transformation Pipeline - Transform CSV to JSON with aggregations
+        self.add_task(
+            BenchmarkTask(
+                name="Data Transformation",
+                prompt=(
+                    f"Read {self.file_setup.workspace_dir}/sales_data.csv. "
+                    f"Transform the data by grouping by product and calculate: "
+                    "1) total_quantity (sum of quantities), 2) total_revenue (quantity * price summed). "
+                    f"Create a JSON file named 'sales_report.json' in {self.file_setup.workspace_dir} "
+                    "containing an array or object with these aggregated product totals."
+                ),
+                expected_output_description="sales_report.json with aggregated product totals",
+                validation_fn=self.validator.validate_data_transformation,
+                timeout=90.0,
+                metadata={"difficulty": "medium", "category": "data_transformation"},
+            )
+        )
+
+        # Task 6: File Comparison - Identify differences between files
+        self.add_task(
+            BenchmarkTask(
+                name="File Comparison",
+                prompt=(
+                    f"Compare {self.file_setup.workspace_dir}/config_v1.ini and "
+                    f"{self.file_setup.workspace_dir}/config_v2.ini. "
+                    f"Create a file named 'config_diff.txt' in {self.file_setup.workspace_dir} "
+                    "that identifies all the differences between the two config files. "
+                    "Include changes in values and new settings added in v2."
+                ),
+                expected_output_description="config_diff.txt identifying all differences",
+                validation_fn=self.validator.validate_file_comparison,
+                timeout=90.0,
+                metadata={"difficulty": "medium", "category": "file_comparison"},
+            )
+        )
+
+        # Task 7: Multi-Step Data Pipeline - Merge multiple data sources
+        self.add_task(
+            BenchmarkTask(
+                name="Multi-Step Data Pipeline",
+                prompt=(
+                    f"Merge data from three sources in {self.file_setup.reports_dir}: "
+                    "1) employees.csv (emp_id, name, dept_id, salary), "
+                    "2) departments.json (id, name, location), "
+                    "3) projects.xml (id, name, dept_id, budget). "
+                    f"Create a JSON file named 'department_report.json' in {self.file_setup.workspace_dir} "
+                    "with department-level aggregations containing: department name, employee_count, "
+                    "total_salary, and total_project_budget. Join the data on dept_id."
+                ),
+                expected_output_description="department_report.json merging all three data sources",
+                validation_fn=self.validator.validate_multi_step_pipeline,
+                timeout=120.0,
+                metadata={"difficulty": "hard", "category": "data_pipeline"},
+            )
+        )
+
+        # Task 8: Advanced Log Analysis - Parse and analyze log file
+        self.add_task(
+            BenchmarkTask(
+                name="Advanced Log Analysis",
+                prompt=(
+                    f"Parse {self.file_setup.workspace_dir}/application.log and generate statistics. "
+                    f"Create a JSON file named 'log_analysis.json' in {self.file_setup.workspace_dir} "
+                    "with the following metrics: "
+                    "1) error_count (number of ERROR entries), "
+                    "2) warn_count (number of WARN entries), "
+                    "3) info_count (number of INFO entries), "
+                    "4) total_entries (total log lines), "
+                    "5) hourly_distribution (count of entries per hour if you can extract timestamps). "
+                    "Parse the log file line by line and count entries by level."
+                ),
+                expected_output_description="log_analysis.json with error rates and hourly distribution",
+                validation_fn=self.validator.validate_log_analysis,
+                timeout=120.0,
+                metadata={"difficulty": "hard", "category": "log_analysis"},
+            )
+        )
+
+        # Task 9: Data Validation Report - Identify data quality issues
+        self.add_task(
+            BenchmarkTask(
+                name="Data Validation Report",
+                prompt=(
+                    f"Validate the data quality in {self.file_setup.workspace_dir}/inventory.csv. "
+                    f"Create a JSON file named 'validation_report.json' in {self.file_setup.workspace_dir} "
+                    "that identifies all data quality issues including: "
+                    "1) missing_values (items with empty/null name, price, or category fields), "
+                    "2) invalid_quantities (negative quantities), "
+                    "3) duplicate_items (items with the same name appearing multiple times). "
+                    "For each issue type, list the item_ids affected and count the total issues."
+                ),
+                expected_output_description="validation_report.json with data quality issues",
+                validation_fn=self.validator.validate_data_validation,
+                timeout=120.0,
+                metadata={"difficulty": "hard", "category": "data_validation"},
+            )
+        )
+
     def pre_check(self) -> list[HealthCheckResult]:
         """Run pre-flight health checks."""
-        checks = check_skills(self.required_skills)
+        local_mode = self.remote_manager is None
+        checks = check_skills(self.required_skills, local_mode=local_mode, remote_manager=self.remote_manager)
 
         # Check workspace access
         if self.file_setup.verify_workspace_access():

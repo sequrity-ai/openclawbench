@@ -50,6 +50,7 @@ class GmailScenario(ScenarioBase):
         refresh_token: str,
         benchmark_email: str,
         bot_email: str,
+        remote_manager=None,
     ):
         """Initialize Gmail scenario.
 
@@ -59,6 +60,7 @@ class GmailScenario(ScenarioBase):
             refresh_token: OAuth2 refresh token for the BENCHMARK Gmail account
             benchmark_email: Benchmark's Gmail address (has OAuth2 credentials)
             bot_email: Bot's Gmail address (configured in OpenClaw)
+            remote_manager: Optional RemoteWorkspaceManager for remote validation
 
         Note:
             - OAuth credentials are for the benchmark's Gmail account
@@ -76,13 +78,14 @@ class GmailScenario(ScenarioBase):
         self.validator = GmailValidator()
         self.benchmark_email = benchmark_email
         self.bot_email = bot_email
+        self.remote_manager = remote_manager
         self.setup_data = {}
 
         # Define tasks
         self._define_tasks()
 
     def _define_tasks(self) -> None:
-        """Define the 3 Gmail tasks with progressive complexity."""
+        """Define the 9 Gmail tasks with progressive complexity."""
 
         # Task 1: Email Search - Find specific email by subject
         self.add_task(
@@ -133,9 +136,82 @@ class GmailScenario(ScenarioBase):
             )
         )
 
+        # Task 4: Count Unread - Report how many unread emails exist
+        self.add_task(
+            BenchmarkTask(
+                name="Count Unread",
+                prompt="How many unread emails do I have?",
+                expected_output_description="Bot reports the number of unread emails in the inbox",
+                validation_fn=self.validator.validate_count_unread,
+                timeout=60.0,
+                metadata={"difficulty": "medium", "category": "email_count"},
+            )
+        )
+
+        # Task 5: Search by Sender - Find emails from a specific address
+        self.add_task(
+            BenchmarkTask(
+                name="Search by Sender",
+                prompt="Find emails from support@example.com",
+                expected_output_description="Bot finds and reports emails sent from support@example.com",
+                validation_fn=self.validator.validate_search_by_sender,
+                timeout=60.0,
+                metadata={"difficulty": "medium", "category": "email_search"},
+            )
+        )
+
+        # Task 6: Label Management - Create a new label
+        self.add_task(
+            BenchmarkTask(
+                name="Label Management",
+                prompt="Create a label called 'Important Projects'",
+                expected_output_description="Bot creates the Gmail label 'Important Projects' and confirms creation",
+                validation_fn=self.validator.validate_label_management,
+                timeout=60.0,
+                metadata={"difficulty": "medium", "category": "label_management"},
+            )
+        )
+
+        # Task 7: Email with Attachment - Find PDF emails from last week
+        self.add_task(
+            BenchmarkTask(
+                name="Email with Attachment",
+                prompt="Find emails with PDF attachments from last week",
+                expected_output_description="Bot finds and reports emails that contain PDF attachments from the past week",
+                validation_fn=self.validator.validate_email_with_attachment,
+                timeout=90.0,
+                metadata={"difficulty": "hard", "category": "email_search"},
+            )
+        )
+
+        # Task 8: Draft Email - Compose a draft to team@example.com
+        self.add_task(
+            BenchmarkTask(
+                name="Draft Email",
+                prompt="Draft an email to team@example.com about Q1 results",
+                expected_output_description="Bot drafts (saves as draft) an email to team@example.com regarding Q1 results",
+                validation_fn=self.validator.validate_draft_email,
+                timeout=90.0,
+                metadata={"difficulty": "hard", "category": "email_draft"},
+            )
+        )
+
+        # Task 9: Email Summary - Summarize the last 5 inbox emails
+        self.add_task(
+            BenchmarkTask(
+                name="Email Summary",
+                prompt="Summarize the last 5 emails in my inbox",
+                expected_output_description="Bot retrieves and summarizes the 5 most recent inbox emails",
+                validation_fn=self.validator.validate_email_summary,
+                timeout=120.0,
+                metadata={"difficulty": "hard", "category": "email_summary"},
+            )
+        )
+
     def pre_check(self) -> list[HealthCheckResult]:
         """Run pre-flight health checks."""
-        checks = check_skills(self.required_skills)
+        local_mode = self.remote_manager is None
+        checks = check_skills(self.required_skills, local_mode=local_mode, remote_manager=self.remote_manager)
 
         # Check Gmail API access
         if self.gmail_setup.verify_api_access():
@@ -174,7 +250,7 @@ class GmailScenario(ScenarioBase):
             random_number = secrets.randbelow(10000)
 
             # Task 1: Send searchable email TO BOT with random content
-            search_subject = f"[BENCHMARK TEST] Project Alpha Updates"
+            search_subject = "[BENCHMARK TEST] Project Alpha Updates"
             search_random_code = f"CODE-{secrets.token_hex(3).upper()}"
             search_email_id = self.gmail_setup.send_test_email(
                 to=self.bot_email,
@@ -217,6 +293,63 @@ class GmailScenario(ScenarioBase):
                 ),
             )
 
+            # Task 5: Send email FROM support@example.com address (spoofed sender display name)
+            # We send it with the benchmark account but label the from field so the bot can find it
+            sender_search_subject = "[BENCHMARK TEST] Support Request"
+            sender_email_id = self.gmail_setup.send_test_email(
+                to=self.bot_email,
+                subject=sender_search_subject,
+                body=(
+                    "Hello,\n\n"
+                    "This is a test support request for the OpenClaw benchmark.\n\n"
+                    "Please note this email was sent as part of an automated test.\n\n"
+                    f"From: support@example.com\n"
+                    f"Test ID: {test_id}\n"
+                    f"Timestamp: {timestamp}"
+                ),
+                from_display_name="support@example.com",
+            )
+
+            # Task 7: Send email with a simulated PDF attachment notice TO BOT
+            attachment_subject = "[BENCHMARK TEST] Q4 Financial Report"
+            attachment_email_id = self.gmail_setup.send_test_email(
+                to=self.bot_email,
+                subject=attachment_subject,
+                body=(
+                    "Please find attached the Q4 Financial Report.\n\n"
+                    "Attachment: Q4_Financial_Report.pdf\n"
+                    "File size: 2.4 MB\n"
+                    "Type: PDF document\n\n"
+                    "This report contains a summary of Q4 performance metrics.\n\n"
+                    f"Test ID: {test_id}\n"
+                    f"Timestamp: {timestamp}"
+                ),
+            )
+
+            # Tasks 9: Send 5 summary seed emails TO BOT so there is content to summarize
+            summary_subjects = []
+            summary_email_ids = []
+            summary_topics = [
+                ("Team Meeting Notes", "Notes from today's standup: discussed sprint progress and blockers."),
+                ("Budget Approval", "Your budget request for Q2 has been approved. See attached breakdown."),
+                ("New Feature Release", "Version 2.3 is now live. Key changes: improved search and dark mode."),
+                ("Customer Feedback", "We received positive feedback from Acme Corp regarding the new dashboard."),
+                ("Action Items", "Following up on action items from last week's review. Deadline is Friday."),
+            ]
+            for topic_subject, topic_body in summary_topics:
+                full_subject = f"[BENCHMARK TEST] {topic_subject}"
+                summary_subjects.append(full_subject)
+                eid = self.gmail_setup.send_test_email(
+                    to=self.bot_email,
+                    subject=full_subject,
+                    body=(
+                        f"{topic_body}\n\n"
+                        f"Test ID: {test_id}\n"
+                        f"Timestamp: {timestamp}"
+                    ),
+                )
+                summary_email_ids.append(eid)
+
             # Wait a moment for emails to propagate
             logger.info("Waiting 3 seconds for Gmail to index emails...")
             time.sleep(3)
@@ -224,20 +357,43 @@ class GmailScenario(ScenarioBase):
             # Store setup data for validation
             self.setup_data = {
                 "test_id": test_id,
+                # Task 1
                 "search_subject": search_subject,
                 "search_email_id": search_email_id,
+                # Task 2
                 "send_subject": "[BENCHMARK TEST] Automated Test Email",
                 "benchmark_email": self.benchmark_email,
                 "bot_email": self.bot_email,
+                # Task 3
                 "parsing_subject": parsing_subject,
                 "parsing_email_id": parsing_email_id,
                 "expected_extracted_data": parsing_data,
+                # Task 4 (no pre-seeded data needed — bot queries live unread count)
+                # Task 5
+                "sender_search_email": "support@example.com",
+                "sender_search_subject": sender_search_subject,
+                "sender_email_id": sender_email_id,
+                # Task 6 (no pre-seeded data — bot creates the label on demand)
+                "new_label_name": "Important Projects",
+                # Task 7
+                "attachment_email_subject": attachment_subject,
+                "attachment_email_id": attachment_email_id,
+                # Task 8 (no pre-seeded data — bot creates the draft on demand)
+                "draft_recipient": "team@example.com",
+                # Task 9
+                "summary_email_subjects": summary_subjects,
+                "summary_email_ids": summary_email_ids,
+                # Shared
                 "gmail_setup": self.gmail_setup,  # Pass for validation
             }
 
-            logger.info(f"Setup complete - sent {len(self.gmail_setup.test_email_ids)} test emails")
+            total_sent = len(self.gmail_setup.test_email_ids)
+            logger.info(f"Setup complete - sent {total_sent} test emails")
             logger.info(f"  - Search email: {search_subject} (ID: {search_email_id})")
             logger.info(f"  - Parsing email: {parsing_subject} (ID: {parsing_email_id})")
+            logger.info(f"  - Sender search email: {sender_search_subject} (ID: {sender_email_id})")
+            logger.info(f"  - Attachment email: {attachment_subject} (ID: {attachment_email_id})")
+            logger.info(f"  - Summary seed emails: {len(summary_email_ids)} sent")
 
             return SetupResult(
                 status=CheckStatus.PASS,

@@ -202,40 +202,22 @@ def _build_scenarios(args, skip_missing: bool = True, local_mode: bool = True, r
         local_mode: True for local mode, False for Telegram mode
         remote_manager: Optional RemoteWorkspaceManager for remote validation
     """
-    from benchmarks.scenarios import GmailScenario, GitHubScenario
+    from benchmarks.scenario_factory import create_scenario
 
     ready_skills = get_ready_skills(local_mode=local_mode)
     config = load_config()
 
-    def _instantiate_scenario(cls, remote_manager):
-        """Instantiate a scenario with appropriate parameters."""
-        if cls == GmailScenario:
-            # Gmail scenario needs OAuth2 credentials from config
-            return cls(
-                client_id=config.google_client_id,
-                client_secret=config.google_client_secret,
-                refresh_token=config.google_refresh_token,
-                benchmark_email=config.gmail_benchmark_email,
-                bot_email=config.gmail_bot_email,
-            )
-        elif cls == GitHubScenario:
-            # GitHub scenario needs personal access token from config
-            return cls(
-                github_token=config.github_token,
-                test_repo_owner=config.github_test_repo_owner,
-                test_repo_name=config.github_test_repo_name,
-            )
-        else:
-            # Other scenarios just need remote_manager
-            return cls(remote_manager=remote_manager)
-
+    # Get scenario classes to instantiate
     if args.scenario == "all":
-        candidates = [_instantiate_scenario(cls, remote_manager) for cls in SCENARIO_MAP.values()]
+        scenario_classes = list(SCENARIO_MAP.values())
     else:
         cls = SCENARIO_MAP.get(args.scenario)
         if not cls:
             raise ValueError(f"Unknown scenario: {args.scenario}")
-        candidates = [_instantiate_scenario(cls, remote_manager)]
+        scenario_classes = [cls]
+
+    # Instantiate scenarios using factory
+    candidates = [create_scenario(cls, config, remote_manager) for cls in scenario_classes]
 
     scenarios = []
     skipped = []

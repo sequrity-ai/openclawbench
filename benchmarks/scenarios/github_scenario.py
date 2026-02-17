@@ -34,13 +34,14 @@ logger = logging.getLogger(__name__)
 class GitHubScenario(ScenarioBase):
     """Benchmark scenario for GitHub operations."""
 
-    def __init__(self, github_token: str, test_repo_owner: str, test_repo_name: str):
+    def __init__(self, github_token: str, test_repo_owner: str, test_repo_name: str, remote_manager=None):
         """Initialize GitHub scenario.
 
         Args:
             github_token: Personal access token for benchmark GitHub account
             test_repo_owner: Owner of test repository
             test_repo_name: Name of test repository
+            remote_manager: Optional RemoteWorkspaceManager for remote validation
 
         Note:
             - Requires bot to have steipete/github skill installed
@@ -56,13 +57,14 @@ class GitHubScenario(ScenarioBase):
         self.validator = GitHubValidator()
         self.test_repo_owner = test_repo_owner
         self.test_repo_name = test_repo_name
+        self.remote_manager = remote_manager
         self.setup_data = {}
 
         # Define tasks
         self._define_tasks()
 
     def _define_tasks(self) -> None:
-        """Define the 3 GitHub tasks."""
+        """Define the 9 GitHub tasks."""
 
         # Task 1: Create Issue
         self.add_task(
@@ -109,9 +111,96 @@ class GitHubScenario(ScenarioBase):
             )
         )
 
+        # Task 4: Recent Commits
+        self.add_task(
+            BenchmarkTask(
+                name="Recent Commits",
+                prompt=(
+                    f"Show me the last 5 commits in the repository {self.test_repo_owner}/{self.test_repo_name}."
+                ),
+                expected_output_description="Bot lists the 5 most recent commits with messages and authors",
+                validation_fn=self.validator.validate_recent_commits,
+                timeout=60.0,
+                metadata={"difficulty": "medium", "category": "commits"},
+            )
+        )
+
+        # Task 5: Pull Request List
+        self.add_task(
+            BenchmarkTask(
+                name="Pull Request List",
+                prompt=(
+                    f"List all open pull requests in the repository {self.test_repo_owner}/{self.test_repo_name}."
+                ),
+                expected_output_description="Bot lists all open pull requests",
+                validation_fn=self.validator.validate_pull_request_list,
+                timeout=60.0,
+                metadata={"difficulty": "medium", "category": "pull_requests"},
+            )
+        )
+
+        # Task 6: Issue Labels
+        self.add_task(
+            BenchmarkTask(
+                name="Issue Labels",
+                prompt=(
+                    f"What labels are available in the repository {self.test_repo_owner}/{self.test_repo_name}?"
+                ),
+                expected_output_description="Bot lists all available labels in the repository",
+                validation_fn=self.validator.validate_issue_labels,
+                timeout=60.0,
+                metadata={"difficulty": "medium", "category": "labels"},
+            )
+        )
+
+        # Task 7: Contributor Stats
+        self.add_task(
+            BenchmarkTask(
+                name="Contributor Stats",
+                prompt=(
+                    f"Who are the top 3 contributors to the repository {self.test_repo_owner}/{self.test_repo_name}?"
+                ),
+                expected_output_description="Bot identifies the top 3 contributors with commit counts",
+                validation_fn=self.validator.validate_contributor_stats,
+                timeout=90.0,
+                metadata={"difficulty": "hard", "category": "contributors"},
+            )
+        )
+
+        # Task 8: File Contents (replaces Code Search which has GitHub search index delay)
+        self.add_task(
+            BenchmarkTask(
+                name="File Contents",
+                prompt=(
+                    f"Get the contents of the file `src/utils.js` in the repository "
+                    f"{self.test_repo_owner}/{self.test_repo_name}. "
+                    f"What functions does it define?"
+                ),
+                expected_output_description="Bot retrieves and displays the file contents, identifying the async functions defined in it",
+                validation_fn=self.validator.validate_file_contents,
+                timeout=90.0,
+                metadata={"difficulty": "hard", "category": "file_contents"},
+            )
+        )
+
+        # Task 9: Release Info
+        self.add_task(
+            BenchmarkTask(
+                name="Release Info",
+                prompt=(
+                    f"What was the latest release in the repository {self.test_repo_owner}/{self.test_repo_name} and when was it published?"
+                ),
+                expected_output_description="Bot provides the latest release tag name and publication date",
+                validation_fn=self.validator.validate_release_info,
+                timeout=90.0,
+                metadata={"difficulty": "hard", "category": "releases"},
+            )
+        )
+
     def pre_check(self) -> list[HealthCheckResult]:
         """Run pre-flight health checks."""
-        checks = check_skills(self.required_skills)
+        local_mode = self.remote_manager is None
+        checks = check_skills(self.required_skills, local_mode=local_mode, remote_manager=self.remote_manager)
 
         # Check GitHub API access
         if self.github_setup.verify_api_access(self.test_repo_owner, self.test_repo_name):
@@ -147,6 +236,11 @@ class GitHubScenario(ScenarioBase):
             # Generate unique identifier for this test run
             test_id = secrets.token_hex(4)
 
+            # Seed the repo with commits, a PR branch, and a release
+            logger.info(f"Seeding repository {self.test_repo_owner}/{self.test_repo_name}...")
+            seed_info = self.github_setup.seed_repo_data(self.test_repo_owner, self.test_repo_name)
+            logger.info(f"Seeding complete: {seed_info}")
+
             # Store setup data for validation
             self.setup_data = {
                 "test_id": test_id,
@@ -154,6 +248,7 @@ class GitHubScenario(ScenarioBase):
                 "repo_owner": self.test_repo_owner,
                 "repo_name": self.test_repo_name,
                 "github_setup": self.github_setup,  # Pass for validation
+                "seed_info": seed_info,
             }
 
             logger.info(f"Setup complete for {self.test_repo_owner}/{self.test_repo_name}")
@@ -173,7 +268,7 @@ class GitHubScenario(ScenarioBase):
             )
 
     def cleanup(self) -> bool:
-        """Clean up the GitHub scenario by closing test issues.
+        """Clean up the GitHub scenario by closing test issues and removing seeded data.
 
         Returns:
             True if cleanup succeeded
@@ -182,6 +277,10 @@ class GitHubScenario(ScenarioBase):
             logger.info("Cleaning up GitHub test issues...")
             closed_count = self.github_setup.cleanup_test_issues(self.test_repo_owner, self.test_repo_name)
             logger.info(f"Cleaned up {closed_count} test issues successfully")
+
+            logger.info("Cleaning up seeded repository data...")
+            self.github_setup.cleanup_seeded_data(self.test_repo_owner, self.test_repo_name)
+            logger.info("Seeded data cleanup complete")
             return True
         except Exception as e:
             logger.error(f"Cleanup error: {e}")

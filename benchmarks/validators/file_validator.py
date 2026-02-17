@@ -243,3 +243,482 @@ class FileValidator:
             validation_details=validation_details,
             error_message=error_message,
         )
+
+    @staticmethod
+    def validate_recursive_search(response: str, setup_data: dict[str, Any]) -> TaskResult:
+        """Validate MEDIUM Task 1: Recursive File Search with Filtering.
+
+        Expected: log_summary.txt with all .log files (path and size)
+        """
+        workspace_dir = Path(setup_data.get("workspace_dir", "/tmp/openclaw_benchmark"))
+
+        success = False
+        accuracy_score = 0.0
+        validation_details = {}
+        error_message = None
+
+        try:
+            summary_file = workspace_dir / "log_summary.txt"
+
+            if not summary_file.exists():
+                error_message = "log_summary.txt not found"
+            else:
+                content = summary_file.read_text()
+
+                # Expected log files (hardcoded to match seed data in file_setup.py and remote_workspace.py)
+                # logs/app.log, logs/error.log, logs/api/requests.log, logs/api/access.log
+                expected_log_names = ["app.log", "error.log", "requests.log", "access.log"]
+                validation_details["expected_files"] = len(expected_log_names)
+
+                # Check if all log files are mentioned in the summary
+                found_files = []
+                missing_files = []
+
+                for log_name in expected_log_names:
+                    # Check if file name is mentioned in the summary
+                    if log_name in content:
+                        found_files.append(log_name)
+                    else:
+                        missing_files.append(log_name)
+
+                validation_details["found_files"] = len(found_files)
+                validation_details["missing_files"] = missing_files
+
+                # Binary scoring: pass only if ALL log files are mentioned
+                if len(missing_files) == 0:
+                    success = True
+                    accuracy_score = 100.0
+                else:
+                    accuracy_score = 0.0
+                    error_message = f"Missing {len(missing_files)} log files in summary: {', '.join(missing_files)}"
+
+        except Exception as e:
+            error_message = f"Validation error: {str(e)}"
+
+        return TaskResult(
+            task_name="Recursive File Search",
+            prompt="Find all .log files recursively and create log_summary.txt",
+            success=success,
+            latency=0.0,
+            accuracy_score=accuracy_score,
+            response_text=response,
+            validation_details=validation_details,
+            error_message=error_message,
+        )
+
+    @staticmethod
+    def validate_data_transformation(response: str, setup_data: dict[str, Any]) -> TaskResult:
+        """Validate MEDIUM Task 2: Data Transformation Pipeline.
+
+        Expected: sales_report.json with aggregated product totals (total_quantity, total_revenue)
+        """
+        workspace_dir = Path(setup_data.get("workspace_dir", "/tmp/openclaw_benchmark"))
+
+        success = False
+        accuracy_score = 0.0
+        validation_details = {}
+        error_message = None
+
+        try:
+            report_file = workspace_dir / "sales_report.json"
+
+            if not report_file.exists():
+                error_message = "sales_report.json not found"
+            else:
+                with open(report_file, "r") as f:
+                    report_data = json.load(f)
+
+                # Expected aggregations from sales_data.csv
+                # Laptop: 5+7+3=15, revenue: 15*1200=18000
+                # Mouse: 15+20=35, revenue: 35*25=875
+                # Keyboard: 8+10=18, revenue: 18*75=1350
+                # Monitor: 3+4=7, revenue: 7*300=2100
+                expected_products = {
+                    "Laptop": {"total_quantity": 15, "total_revenue": 18000},
+                    "Mouse": {"total_quantity": 35, "total_revenue": 875},
+                    "Keyboard": {"total_quantity": 18, "total_revenue": 1350},
+                    "Monitor": {"total_quantity": 7, "total_revenue": 2100},
+                }
+
+                validation_details["expected_products"] = list(expected_products.keys())
+
+                # Check if data is structured correctly
+                if not isinstance(report_data, (list, dict)):
+                    error_message = "Invalid JSON structure"
+                else:
+                    # Handle both list of products or dict with products key
+                    products_list = report_data if isinstance(report_data, list) else report_data.get("products", [])
+
+                    matched_products = 0
+                    mismatched_products = []
+
+                    for expected_name, expected_values in expected_products.items():
+                        found = False
+                        for product in products_list:
+                            product_name = product.get("product", "")
+                            if product_name == expected_name:
+                                # Check quantities and revenue
+                                qty = product.get("total_quantity", 0)
+                                rev = product.get("total_revenue", 0)
+
+                                if qty == expected_values["total_quantity"] and rev == expected_values["total_revenue"]:
+                                    matched_products += 1
+                                    found = True
+                                    break
+                                else:
+                                    mismatched_products.append(f"{expected_name}: expected qty={expected_values['total_quantity']}, rev={expected_values['total_revenue']}, got qty={qty}, rev={rev}")
+                                    found = True
+                                    break
+
+                        if not found:
+                            mismatched_products.append(f"{expected_name}: not found in report")
+
+                    validation_details["matched_products"] = matched_products
+                    validation_details["mismatched_products"] = mismatched_products
+
+                    # Binary scoring: pass only if ALL products have correct aggregations
+                    if matched_products == len(expected_products):
+                        success = True
+                        accuracy_score = 100.0
+                    else:
+                        accuracy_score = 0.0
+                        error_message = f"Product aggregations incorrect: {', '.join(mismatched_products)}"
+
+        except json.JSONDecodeError as e:
+            error_message = f"Invalid JSON format: {str(e)}"
+        except Exception as e:
+            error_message = f"Validation error: {str(e)}"
+
+        return TaskResult(
+            task_name="Data Transformation",
+            prompt="Transform sales_data.csv into sales_report.json with aggregations",
+            success=success,
+            latency=0.0,
+            accuracy_score=accuracy_score,
+            response_text=response,
+            validation_details=validation_details,
+            error_message=error_message,
+        )
+
+    @staticmethod
+    def validate_file_comparison(response: str, setup_data: dict[str, Any]) -> TaskResult:
+        """Validate MEDIUM Task 3: File Comparison and Merge.
+
+        Expected: config_diff.txt identifying all differences between config versions
+        """
+        workspace_dir = Path(setup_data.get("workspace_dir", "/tmp/openclaw_benchmark"))
+
+        success = False
+        accuracy_score = 0.0
+        validation_details = {}
+        error_message = None
+
+        try:
+            diff_file = workspace_dir / "config_diff.txt"
+
+            if not diff_file.exists():
+                error_message = "config_diff.txt not found"
+            else:
+                content = diff_file.read_text().lower()
+
+                # Key differences to detect between config_v1 and config_v2:
+                # 1. database.host: localhost -> prod-db.example.com
+                # 2. database.timeout: 30 -> 60
+                # 3. database.pool_size: added in v2
+                # 4. cache.ttl: 300 -> 600
+                # 5. logging.level: INFO -> DEBUG
+                # 6. logging.format: added in v2
+
+                expected_diffs = [
+                    ("host", ["localhost", "prod-db.example.com", "database"]),
+                    ("timeout", ["30", "60", "database"]),
+                    ("pool_size", ["pool", "10"]),
+                    ("ttl", ["300", "600", "cache"]),
+                    ("level", ["info", "debug", "logging"]),
+                    ("format", ["json", "logging"]),
+                ]
+
+                found_diffs = []
+                missing_diffs = []
+
+                for diff_name, keywords in expected_diffs:
+                    # Check if diff is mentioned (all keywords should appear)
+                    if all(keyword in content for keyword in keywords):
+                        found_diffs.append(diff_name)
+                    else:
+                        missing_diffs.append(diff_name)
+
+                validation_details["expected_diffs"] = len(expected_diffs)
+                validation_details["found_diffs"] = found_diffs
+                validation_details["missing_diffs"] = missing_diffs
+
+                # Binary scoring: pass only if at least 5 out of 6 diffs are found
+                # (allowing some flexibility in how differences are reported)
+                if len(found_diffs) >= 5:
+                    success = True
+                    accuracy_score = 100.0
+                else:
+                    accuracy_score = 0.0
+                    error_message = f"Missing key differences: {', '.join(missing_diffs)} (found {len(found_diffs)}/6)"
+
+        except Exception as e:
+            error_message = f"Validation error: {str(e)}"
+
+        return TaskResult(
+            task_name="File Comparison",
+            prompt="Compare config_v1.ini and config_v2.ini, create config_diff.txt",
+            success=success,
+            latency=0.0,
+            accuracy_score=accuracy_score,
+            response_text=response,
+            validation_details=validation_details,
+            error_message=error_message,
+        )
+
+    @staticmethod
+    def validate_multi_step_pipeline(response: str, setup_data: dict[str, Any]) -> TaskResult:
+        """Validate HARD Task 2: Multi-Step Data Pipeline.
+
+        Expected: department_report.json merging employees.csv, departments.json, projects.xml
+        with department name, employee count, total salary, total project budget
+        """
+        workspace_dir = Path(setup_data.get("workspace_dir", "/tmp/openclaw_benchmark"))
+
+        success = False
+        accuracy_score = 0.0
+        validation_details = {}
+        error_message = None
+
+        try:
+            report_file = workspace_dir / "department_report.json"
+
+            if not report_file.exists():
+                error_message = "department_report.json not found"
+            else:
+                with open(report_file, "r") as f:
+                    report_data = json.load(f)
+
+                # Expected aggregations:
+                # Engineering (dept_id=1): 2 employees (Alice 95k, Carol 105k), 1 project (Mobile App 120k)
+                # Design (dept_id=2): 2 employees (Bob 78k, Eve 88k), 1 project (Website Redesign 50k)
+                # Marketing (dept_id=3): 1 employee (Dave 82k), 1 project (Brand Campaign 75k)
+                expected_depts = {
+                    "Engineering": {
+                        "employee_count": 2,
+                        "total_salary": 200000,  # 95k + 105k
+                        "total_project_budget": 120000,
+                    },
+                    "Design": {
+                        "employee_count": 2,
+                        "total_salary": 166000,  # 78k + 88k
+                        "total_project_budget": 50000,
+                    },
+                    "Marketing": {
+                        "employee_count": 1,
+                        "total_salary": 82000,
+                        "total_project_budget": 75000,
+                    },
+                }
+
+                validation_details["expected_departments"] = list(expected_depts.keys())
+
+                # Handle both list of departments or dict with departments key
+                depts_list = report_data if isinstance(report_data, list) else report_data.get("departments", [])
+
+                matched_depts = 0
+                mismatched_depts = []
+
+                for expected_name, expected_values in expected_depts.items():
+                    found = False
+                    for dept in depts_list:
+                        dept_name = dept.get("department", dept.get("name", ""))
+                        if dept_name == expected_name:
+                            # Check all aggregations
+                            emp_count = dept.get("employee_count", 0)
+                            total_salary = dept.get("total_salary", 0)
+                            total_budget = dept.get("total_project_budget", dept.get("project_budget", 0))
+
+                            if (
+                                emp_count == expected_values["employee_count"]
+                                and total_salary == expected_values["total_salary"]
+                                and total_budget == expected_values["total_project_budget"]
+                            ):
+                                matched_depts += 1
+                                found = True
+                                break
+                            else:
+                                mismatched_depts.append(
+                                    f"{expected_name}: expected emp={expected_values['employee_count']}, "
+                                    f"salary={expected_values['total_salary']}, budget={expected_values['total_project_budget']}, "
+                                    f"got emp={emp_count}, salary={total_salary}, budget={total_budget}"
+                                )
+                                found = True
+                                break
+
+                    if not found:
+                        mismatched_depts.append(f"{expected_name}: not found in report")
+
+                validation_details["matched_departments"] = matched_depts
+                validation_details["mismatched_departments"] = mismatched_depts
+
+                # Binary scoring: pass only if ALL departments have correct aggregations
+                if matched_depts == len(expected_depts):
+                    success = True
+                    accuracy_score = 100.0
+                else:
+                    accuracy_score = 0.0
+                    error_message = f"Department aggregations incorrect: {', '.join(mismatched_depts)}"
+
+        except json.JSONDecodeError as e:
+            error_message = f"Invalid JSON format: {str(e)}"
+        except Exception as e:
+            error_message = f"Validation error: {str(e)}"
+
+        return TaskResult(
+            task_name="Multi-Step Data Pipeline",
+            prompt="Merge employees.csv, departments.json, projects.xml into department_report.json",
+            success=success,
+            latency=0.0,
+            accuracy_score=accuracy_score,
+            response_text=response,
+            validation_details=validation_details,
+            error_message=error_message,
+        )
+
+    @staticmethod
+    def validate_log_analysis(response: str, setup_data: dict[str, Any]) -> TaskResult:
+        """Validate HARD Task 8: Advanced Log Analysis.
+
+        Expected: log_analysis.json with error rates, hourly distribution, top errors
+        """
+        workspace_dir = Path(setup_data.get("workspace_dir", "/tmp/openclaw_benchmark"))
+
+        success = False
+        accuracy_score = 0.0
+        validation_details = {}
+        error_message = None
+
+        try:
+            analysis_file = workspace_dir / "log_analysis.json"
+
+            if not analysis_file.exists():
+                error_message = "log_analysis.json not found"
+            else:
+                with open(analysis_file, "r") as f:
+                    analysis_data = json.load(f)
+
+                # Check for required metrics
+                required_keys = ["error_count", "warn_count", "info_count", "total_entries"]
+                has_all_keys = all(key in analysis_data for key in required_keys)
+
+                validation_details["has_required_keys"] = has_all_keys
+                validation_details["found_keys"] = list(analysis_data.keys())
+
+                # Expected: 32 errors, 32 warns (from if/elif logic with i%10 and i%7 and i%15)
+                # Total: 250 entries
+                if has_all_keys:
+                    error_count = analysis_data.get("error_count", 0)
+                    warn_count = analysis_data.get("warn_count", 0)
+                    total = analysis_data.get("total_entries", 0)
+
+                    # Check if counts are reasonable (allow small variation in parsing)
+                    if 28 <= error_count <= 36 and 28 <= warn_count <= 36 and 240 <= total <= 260:
+                        success = True
+                        accuracy_score = 100.0
+                    else:
+                        error_message = f"Unexpected counts: errors={error_count}, warns={warn_count}, total={total}"
+                        validation_details["expected_error_range"] = "28-36"
+                        validation_details["expected_warn_range"] = "28-36"
+                        validation_details["expected_total_range"] = "240-260"
+                else:
+                    error_message = f"Missing required keys: {set(required_keys) - set(analysis_data.keys())}"
+
+        except json.JSONDecodeError as e:
+            error_message = f"Invalid JSON format: {str(e)}"
+        except Exception as e:
+            error_message = f"Validation error: {str(e)}"
+
+        return TaskResult(
+            task_name="Advanced Log Analysis",
+            prompt="Parse application.log and generate statistical analysis",
+            success=success,
+            latency=0.0,
+            accuracy_score=accuracy_score,
+            response_text=response,
+            validation_details=validation_details,
+            error_message=error_message,
+        )
+
+    @staticmethod
+    def validate_data_validation(response: str, setup_data: dict[str, Any]) -> TaskResult:
+        """Validate HARD Task 9: Data Validation Report.
+
+        Expected: validation_report.json identifying data quality issues
+        """
+        workspace_dir = Path(setup_data.get("workspace_dir", "/tmp/openclaw_benchmark"))
+
+        success = False
+        accuracy_score = 0.0
+        validation_details = {}
+        error_message = None
+
+        try:
+            report_file = workspace_dir / "validation_report.json"
+
+            if not report_file.exists():
+                error_message = "validation_report.json not found"
+            else:
+                with open(report_file, "r") as f:
+                    report_data = json.load(f)
+
+                # Expected issues in inventory.csv:
+                # - Missing names: 1004, 1015, 1026, 1037 (4 items)
+                # - Missing prices: 1006, 1018, 1030, 1044 (4 items)
+                # - Missing categories: 1021, 1035, 1048 (3 items)
+                # - Missing dates: 1009 (1 item)
+                # - Negative quantities: 1003, 1012, 1023, 1034, 1041 (5 items)
+                # - Zero quantities: 1002, 1010, 1017, 1028, 1038, 1045 (6 items)
+                # - Duplicate names: Widget A (1001, 1008, 1020) (3 occurrences)
+
+                # Check if report identifies major issue categories
+                issues_found = 0
+
+                # Look for evidence of issue detection (flexible structure)
+                report_str = json.dumps(report_data).lower()
+
+                if "missing" in report_str or "empty" in report_str or "null" in report_str:
+                    issues_found += 1
+                    validation_details["detected_missing_values"] = True
+
+                if "negative" in report_str or "invalid" in report_str:
+                    issues_found += 1
+                    validation_details["detected_negative_values"] = True
+
+                if "duplicate" in report_str:
+                    issues_found += 1
+                    validation_details["detected_duplicates"] = True
+
+                validation_details["issue_categories_found"] = issues_found
+
+                # Pass if at least 2 major issue types are detected
+                if issues_found >= 2:
+                    success = True
+                    accuracy_score = 100.0
+                else:
+                    error_message = f"Only {issues_found}/3 issue categories detected"
+
+        except json.JSONDecodeError as e:
+            error_message = f"Invalid JSON format: {str(e)}"
+        except Exception as e:
+            error_message = f"Validation error: {str(e)}"
+
+        return TaskResult(
+            task_name="Data Validation Report",
+            prompt="Validate inventory.csv and generate quality issues report",
+            success=success,
+            latency=0.0,
+            accuracy_score=accuracy_score,
+            response_text=response,
+            validation_details=validation_details,
+            error_message=error_message,
+        )

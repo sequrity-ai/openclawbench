@@ -8,6 +8,12 @@ Architecture:
        - Task 1: Summarize a web article
        - Task 2: Summarize a YouTube video
        - Task 3: Compare summaries from multiple sources
+       - Task 4 (Medium): Executive Summary - Create executive summary of a business article
+       - Task 5 (Medium): Technical Abstract - Summarize a technical document focusing on key concepts
+       - Task 6 (Medium): Comparative Summary - Compare two articles on same topic
+       - Task 7 (Hard): Multi-Level Summary - Provide 1-sentence, 1-paragraph, and detailed summaries
+       - Task 8 (Hard): Q&A Generation - Generate questions and answers from an article
+       - Task 9 (Hard): Sentiment Analysis Summary - Summarize with sentiment analysis
 """
 
 import logging
@@ -19,6 +25,7 @@ from benchmarks.base import (
     ScenarioBase,
     SetupResult,
 )
+from benchmarks.setup.summarize_setup import SummarizeSetup
 from benchmarks.skill_checker import check_skills
 from benchmarks.validators.summarize_validator import SummarizeValidator
 
@@ -45,13 +52,15 @@ class SummarizeScenario(ScenarioBase):
         )
 
         self.validator = SummarizeValidator()
+        self.remote_manager = remote_manager
         self.setup_data = {}
+        self.summarize_setup = SummarizeSetup()
 
         # Define tasks
         self._define_tasks()
 
     def _define_tasks(self) -> None:
-        """Define the 3 Summarize tasks."""
+        """Define the 9 Summarize tasks."""
 
         # Task 1: Web Article Summary
         self.add_task(
@@ -94,10 +103,115 @@ class SummarizeScenario(ScenarioBase):
             )
         )
 
+        # Task 4 (Medium): Executive Summary
+        self.add_task(
+            BenchmarkTask(
+                name="Executive Summary",
+                prompt=(
+                    "Please read the business report at /tmp/openclaw_benchmark/documents/business_report.txt "
+                    "and create an executive summary. The summary should highlight key financial highlights, "
+                    "business performance metrics, and strategic outlook. Keep it concise and professional."
+                ),
+                expected_output_description="Bot creates a professional executive summary covering key highlights, performance metrics, and outlook",
+                validation_fn=self.validator.validate_executive_summary,
+                timeout=90.0,
+                metadata={"difficulty": "medium", "category": "executive_summary"},
+            )
+        )
+
+        # Task 5 (Medium): Technical Abstract
+        self.add_task(
+            BenchmarkTask(
+                name="Technical Abstract",
+                prompt=(
+                    "Please read the technical paper at /tmp/openclaw_benchmark/documents/technical_paper.txt "
+                    "and write a technical abstract focusing on the key concepts, methodology, and findings. "
+                    "Identify the main approaches discussed and summarize the experimental results."
+                ),
+                expected_output_description="Bot provides a technical abstract covering methodology, key concepts, and findings",
+                validation_fn=self.validator.validate_technical_abstract,
+                timeout=90.0,
+                metadata={"difficulty": "medium", "category": "technical_abstract"},
+            )
+        )
+
+        # Task 6 (Medium): Comparative Summary
+        self.add_task(
+            BenchmarkTask(
+                name="Comparative Summary",
+                prompt=(
+                    "Read these two articles about AI in healthcare: "
+                    "1) /tmp/openclaw_benchmark/documents/ai_article_a.txt "
+                    "2) /tmp/openclaw_benchmark/documents/ai_article_b.txt "
+                    "Compare and summarize both articles. What are the key differences in their perspectives? "
+                    "What do they agree and disagree on?"
+                ),
+                expected_output_description="Bot compares both AI articles, highlighting agreement and divergence between pro-AI and cautionary perspectives",
+                validation_fn=self.validator.validate_comparative_summary,
+                timeout=120.0,
+                metadata={"difficulty": "medium", "category": "comparative_summary"},
+            )
+        )
+
+        # Task 7 (Hard): Multi-Level Summary
+        self.add_task(
+            BenchmarkTask(
+                name="Multi-Level Summary",
+                prompt=(
+                    "Read the article at /tmp/openclaw_benchmark/documents/quantum_computing.txt "
+                    "and provide THREE levels of summary:\n"
+                    "1. One-sentence summary: Capture the entire article in a single sentence\n"
+                    "2. One-paragraph summary: A concise paragraph with the key points\n"
+                    "3. Detailed summary: A comprehensive overview covering all major sections"
+                ),
+                expected_output_description="Bot provides all three summary levels with appropriate depth and structure for each",
+                validation_fn=self.validator.validate_multilevel_summary,
+                timeout=120.0,
+                metadata={"difficulty": "hard", "category": "multilevel_summary"},
+            )
+        )
+
+        # Task 8 (Hard): Q&A Generation
+        self.add_task(
+            BenchmarkTask(
+                name="Q&A Generation",
+                prompt=(
+                    "Read the article at /tmp/openclaw_benchmark/documents/renewable_energy.txt "
+                    "and generate a Q&A study guide from it. Create at least 5 questions with detailed answers "
+                    "that cover the main ideas, key facts, and important concepts in the article. "
+                    "Format each entry clearly as Question and Answer."
+                ),
+                expected_output_description="Bot generates at least 5 well-formed questions with comprehensive answers from the article",
+                validation_fn=self.validator.validate_qa_generation,
+                timeout=120.0,
+                metadata={"difficulty": "hard", "category": "qa_generation"},
+            )
+        )
+
+        # Task 9 (Hard): Sentiment Analysis Summary
+        self.add_task(
+            BenchmarkTask(
+                name="Sentiment Analysis Summary",
+                prompt=(
+                    "Read the article at /tmp/openclaw_benchmark/documents/social_media_impact.txt "
+                    "and provide a summary that includes sentiment analysis. In your response:\n"
+                    "1. Summarize the main points of the article\n"
+                    "2. Analyze the overall tone and sentiment (positive, negative, neutral, or mixed)\n"
+                    "3. Identify sections with notably positive or negative sentiment\n"
+                    "4. Describe how the author's tone shifts throughout the article"
+                ),
+                expected_output_description="Bot summarizes the article and provides a thorough sentiment analysis including tone, polarity, and sentiment shifts",
+                validation_fn=self.validator.validate_sentiment_summary,
+                timeout=120.0,
+                metadata={"difficulty": "hard", "category": "sentiment_summary"},
+            )
+        )
+
     def pre_check(self) -> list[HealthCheckResult]:
         """Run pre-flight health checks."""
         # Check for summarize skill
-        checks = check_skills(self.required_skills)
+        local_mode = self.remote_manager is None
+        checks = check_skills(self.required_skills, local_mode=local_mode, remote_manager=self.remote_manager)
 
         checks.append(
             HealthCheckResult(
@@ -119,12 +233,46 @@ class SummarizeScenario(ScenarioBase):
         try:
             logger.info("Setting up Summarize benchmark...")
 
-            # Store expected data for validation
-            self.setup_data = {
-                # No specific setup data needed - URLs are in task prompts
-            }
+            if self.remote_manager:
+                # Create docs locally, then upload to remote server via SFTP
+                logger.info("Creating seed documents locally...")
+                workspace_data = self.summarize_setup.create_workspace()
 
-            logger.info("Setup complete - validation criteria configured")
+                logger.info("Uploading seed documents to remote server...")
+                self.remote_manager.connect()
+
+                # Create remote documents directory
+                remote_docs_dir = f"{self.remote_manager.workspace_path}/documents"
+                self.remote_manager._exec_command(f"mkdir -p {remote_docs_dir}")
+
+                # Upload each document
+                import os
+                local_docs_dir = workspace_data["documents_dir"]
+                for filename in os.listdir(local_docs_dir):
+                    local_path = os.path.join(local_docs_dir, filename)
+                    remote_path = f"{remote_docs_dir}/{filename}"
+                    self.remote_manager.sftp_client.put(local_path, remote_path)
+                    logger.info(f"✓ Uploaded {filename} to {remote_path}")
+
+                # Update paths in workspace_data to remote paths
+                remote_workspace_data = {
+                    "workspace_dir": self.remote_manager.workspace_path,
+                    "documents_dir": remote_docs_dir,
+                    "business_article": f"{remote_docs_dir}/business_report.txt",
+                    "technical_doc": f"{remote_docs_dir}/technical_paper.txt",
+                    "article_a": f"{remote_docs_dir}/ai_article_a.txt",
+                    "article_b": f"{remote_docs_dir}/ai_article_b.txt",
+                    "long_article": f"{remote_docs_dir}/quantum_computing.txt",
+                    "qa_article": f"{remote_docs_dir}/renewable_energy.txt",
+                    "sentiment_article": f"{remote_docs_dir}/social_media_impact.txt",
+                }
+                self.setup_data = remote_workspace_data
+            else:
+                # Create seed documents for Tasks 4-9 locally (fallback for local mode)
+                workspace_data = self.summarize_setup.create_workspace()
+                self.setup_data = {**workspace_data}
+
+            logger.info("Setup complete - seed documents created and validation criteria configured")
 
             return SetupResult(
                 status=CheckStatus.PASS,
@@ -144,7 +292,17 @@ class SummarizeScenario(ScenarioBase):
         """Clean up the Summarize scenario.
 
         Returns:
-            True (no cleanup needed for summarization)
+            True if cleanup succeeded
         """
-        logger.info("Summarize scenario cleanup (no action needed)")
-        return True
+        logger.info("Summarize scenario cleanup - removing seed documents")
+        local_ok = self.summarize_setup.cleanup_workspace()
+
+        if self.remote_manager:
+            try:
+                remote_docs_dir = f"{self.remote_manager.workspace_path}/documents"
+                self.remote_manager._exec_command(f"rm -rf {remote_docs_dir}")
+                logger.info(f"Removed remote documents at {remote_docs_dir}")
+            except Exception as e:
+                logger.warning(f"Failed to remove remote documents: {e}")
+
+        return local_ok
