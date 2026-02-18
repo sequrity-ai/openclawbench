@@ -160,6 +160,9 @@ class BenchmarkTask:
     validation_fn: Callable[[str, dict[str, Any]], TaskResult]
     timeout: float = 60.0
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Set True for tasks where validation reads files produced by the bot (File scenario).
+    # False (default) means validation checks the bot's response text.
+    validates_files: bool = False
 
 
 def _create_session(client: Any, bot_identifier: int | str) -> Any:
@@ -348,17 +351,18 @@ class ScenarioBase(ABC):
 
                 # Validate the conversation outcome
                 if conversation_result.success:
-                    # Check if scenario has remote_manager for remote validation
-                    if hasattr(self, 'remote_manager') and self.remote_manager:
-                        # Remote validation: download files and validate
-                        logger.info(f"[{run_id}] Running remote validation for task: {task.name}")
+                    # File-based tasks: download bot-produced files from remote and validate them.
+                    # Response-based tasks: validate the bot's reply text directly even in remote mode.
+                    if hasattr(self, 'remote_manager') and self.remote_manager and task.validates_files:
+                        # Remote file validation: download files and validate
+                        logger.info(f"[{run_id}] Running remote file validation for task: {task.name}")
                         validation_result = self.remote_manager.remote_validate(
                             task_name=task.name,
                             validation_fn=task.validation_fn,
                             setup_data=setup_result.setup_data if setup_result else {},
                         )
                     else:
-                        # Local validation: use all bot responses concatenated
+                        # Response-based validation: use all bot responses concatenated
                         validation_result = task.validation_fn(
                             final_response, setup_result.setup_data if setup_result else {}
                         )
@@ -525,10 +529,10 @@ class ScenarioBase(ABC):
                 # Multi-turn conversation mode with AI agent (sync wrapper)
                 logger.info(f"[{run_id}] Starting multi-turn conversation for task: {task.name}")
 
-                # Run the conversation using sync wrapper
+                # Run the conversation using sync wrapper (pass full prompt, not just expected output description)
                 conversation_result: ConversationResult = ai_agent.run_conversation_sync(
                     task_name=task.name,
-                    task_description=task.expected_output_description,
+                    task_description=task.prompt,
                     session=session,
                 )
 
@@ -543,17 +547,18 @@ class ScenarioBase(ABC):
 
                 # Validate the conversation outcome
                 if conversation_result.success:
-                    # Check if scenario has remote_manager for remote validation
-                    if hasattr(self, 'remote_manager') and self.remote_manager:
-                        # Remote validation: download files and validate
-                        logger.info(f"[{run_id}] Running remote validation for task: {task.name}")
+                    # File-based tasks: download bot-produced files from remote and validate them.
+                    # Response-based tasks: validate the bot's reply text directly even in remote mode.
+                    if hasattr(self, 'remote_manager') and self.remote_manager and task.validates_files:
+                        # Remote file validation: download files and validate
+                        logger.info(f"[{run_id}] Running remote file validation for task: {task.name}")
                         validation_result = self.remote_manager.remote_validate(
                             task_name=task.name,
                             validation_fn=task.validation_fn,
                             setup_data=setup_result.setup_data if setup_result else {},
                         )
                     else:
-                        # Local validation: use all bot responses concatenated
+                        # Response-based validation: use all bot responses concatenated
                         validation_result = task.validation_fn(
                             final_response, setup_result.setup_data if setup_result else {}
                         )

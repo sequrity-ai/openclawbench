@@ -540,6 +540,16 @@ format = json
             local_setup_data["data_json"] = os.path.join(temp_dir, "data.json")
             local_setup_data["notes_txt"] = os.path.join(temp_dir, "notes.txt")
             local_setup_data["reports_dir"] = os.path.join(temp_dir, "reports")
+            # Summarize scenario document paths (if present in setup_data)
+            docs_dir = os.path.join(temp_dir, "documents")
+            local_setup_data["documents_dir"] = docs_dir
+            local_setup_data["business_article"] = os.path.join(docs_dir, "business_report.txt")
+            local_setup_data["technical_doc"] = os.path.join(docs_dir, "technical_paper.txt")
+            local_setup_data["article_a"] = os.path.join(docs_dir, "ai_article_a.txt")
+            local_setup_data["article_b"] = os.path.join(docs_dir, "ai_article_b.txt")
+            local_setup_data["long_article"] = os.path.join(docs_dir, "quantum_computing.txt")
+            local_setup_data["qa_article"] = os.path.join(docs_dir, "renewable_energy.txt")
+            local_setup_data["sentiment_article"] = os.path.join(docs_dir, "social_media_impact.txt")
 
             # Run validation on downloaded files (pass empty string as bot_response since we validate files)
             validation_result = validation_fn("", local_setup_data)

@@ -1,4 +1,11 @@
-"""Validation utilities for Gmail benchmark tasks."""
+"""Validation utilities for Gmail benchmark tasks.
+
+All tasks are pinned to dynamically-seeded email data sent during setup().
+Ground-truth values (subjects, codes, invoice numbers, amounts) are generated
+fresh each run and stored in setup_data — no hardcoded facts.
+
+Validators use binary success (100.0 or 0.0) — no partial credit paths.
+"""
 
 import logging
 import re
@@ -10,21 +17,21 @@ logger = logging.getLogger(__name__)
 
 
 class GmailValidator:
-    """Validates Gmail task results."""
+    """Validates Gmail task results against seeded email content."""
 
     @staticmethod
     def validate_email_search(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 1: Email search.
+        """Validate Task 1: Email search (EASY).
 
-        Expected: Bot found and reported correct email subject and confirmation code
+        Expected: Bot found the seeded '[BENCHMARK TEST] Project Alpha Updates' email
+        and reported the unique confirmation code from its body.
 
-        Args:
-            response: Full conversation history (all bot responses concatenated)
-            setup_data: Setup data including expected_subject and confirmation_code
+        Conditions:
+          1. search_subject phrase appears in response
+          2. confirmation_code (unique random per-run code) appears in response
         """
         expected_subject = setup_data.get("search_subject", "")
         expected_code = setup_data.get("expected_extracted_data", {}).get("confirmation_code", "")
-        test_email_id = setup_data.get("search_email_id", "")
 
         success = False
         accuracy_score = 0.0
@@ -35,34 +42,31 @@ class GmailValidator:
         error_message = None
 
         try:
-            # Check if bot mentioned the correct subject AND confirmation code
-            # This ensures bot is reading the LATEST email, not a cached old one
-            subject_found = expected_subject.lower() in response.lower()
-            code_found = expected_code and expected_code.lower() in response.lower()
+            response_lower = response.lower()
+
+            subject_found = expected_subject.lower() in response_lower
+            code_found = bool(expected_code) and expected_code.lower() in response_lower
+
+            validation_details["subject_found"] = subject_found
+            validation_details["code_found"] = code_found
 
             if subject_found and code_found:
                 success = True
                 accuracy_score = 100.0
-                validation_details["found_subject"] = True
-                validation_details["found_confirmation_code"] = True
-            elif subject_found:
-                # Found subject but not confirmation code - might be old email
-                accuracy_score = 50.0
-                error_message = f"Found subject but missing confirmation code: '{expected_code}'"
-                validation_details["found_subject"] = True
-                validation_details["found_confirmation_code"] = False
             else:
-                accuracy_score = 0.0
-                error_message = f"Bot did not mention expected subject: '{expected_subject}'"
-                validation_details["found_subject"] = False
-                validation_details["found_confirmation_code"] = False
+                missing_parts = []
+                if not subject_found:
+                    missing_parts.append(f"email subject '{expected_subject}'")
+                if not code_found:
+                    missing_parts.append(f"confirmation code '{expected_code}'")
+                error_message = f"Missing: {'; '.join(missing_parts)}"
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"
 
         return TaskResult(
             task_name="Email Search",
-            prompt="Search for email with specific subject",
+            prompt="Search for '[BENCHMARK TEST] Project Alpha Updates' and report the confirmation code",
             success=success,
             latency=0.0,
             accuracy_score=accuracy_score,
@@ -73,10 +77,13 @@ class GmailValidator:
 
     @staticmethod
     def validate_email_send(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 2: Email send.
+        """Validate Task 2: Email send (EASY).
 
-        Expected: Email from bot exists in benchmark's Gmail inbox
-        (Bot sends TO benchmark account, so we check benchmark's inbox)
+        Expected: Email from bot exists in benchmark's Gmail inbox.
+        Validation uses Gmail API to check — not just response keywords.
+
+        Conditions:
+          1. Gmail API confirms email received from bot with expected subject
         """
         gmail_setup = setup_data.get("gmail_setup")
         expected_subject = setup_data.get("send_subject", "")
@@ -85,21 +92,20 @@ class GmailValidator:
 
         success = False
         accuracy_score = 0.0
-        validation_details = {}
+        validation_details = {
+            "expected_subject": expected_subject,
+            "benchmark_email": benchmark_email,
+            "bot_email": bot_email,
+        }
         error_message = None
 
         try:
             if not gmail_setup:
                 error_message = "Gmail setup not available for validation"
             else:
-                # Search for received email in benchmark's inbox from bot
-                # Bot sends TO benchmark, so we check inbox (not sent folder)
                 query = f"subject:{expected_subject} from:{bot_email} in:inbox"
                 received_emails = gmail_setup.search_emails(query, max_results=5)
 
-                validation_details["expected_subject"] = expected_subject
-                validation_details["benchmark_email"] = benchmark_email
-                validation_details["bot_email"] = bot_email
                 validation_details["found_count"] = len(received_emails)
 
                 if received_emails:
@@ -107,15 +113,17 @@ class GmailValidator:
                     accuracy_score = 100.0
                     validation_details["email_id"] = received_emails[0]["id"]
                 else:
-                    accuracy_score = 0.0
-                    error_message = f"No email received from bot with subject '{expected_subject}' from '{bot_email}'"
+                    error_message = (
+                        f"No email received from bot with subject '{expected_subject}' "
+                        f"from '{bot_email}' — Gmail API check found 0 matching emails"
+                    )
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"
 
         return TaskResult(
             task_name="Email Send",
-            prompt="Send email with specific subject and recipient",
+            prompt=f"Send email to benchmark account with subject '{expected_subject}'",
             success=success,
             latency=0.0,
             accuracy_score=accuracy_score,
@@ -126,40 +134,42 @@ class GmailValidator:
 
     @staticmethod
     def validate_email_parsing(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 3: Email data extraction.
+        """Validate Task 3: Email data extraction (EASY).
 
-        Expected: Bot extracted correct data from email
+        Expected: Bot extracted invoice_number, total_amount, and due_date
+        from the seeded invoice email. All three values are random per run.
+
+        Conditions:
+          1. invoice_number (e.g. "INV-7342") appears in response
+          2. total_amount (e.g. "$7842.00") appears in response
+          3. due_date ("2026-03-15") appears in response
         """
         expected_data = setup_data.get("expected_extracted_data", {})
+        # Exclude confirmation_code — that's for Task 1 only
+        relevant_data = {k: v for k, v in expected_data.items() if k != "confirmation_code"}
 
         success = False
         accuracy_score = 0.0
-        validation_details = {"expected_data": expected_data}
+        validation_details = {"expected_data": relevant_data}
         error_message = None
 
         try:
-            # Check if bot extracted expected values
-            # Exclude 'confirmation_code' which is only for Task 1
-            relevant_data = {k: v for k, v in expected_data.items() if k != "confirmation_code"}
             extracted_correctly = []
             missing_values = []
 
             for key, expected_value in relevant_data.items():
-                # Look for the value in bot's response (case-insensitive)
                 if str(expected_value).lower() in response.lower():
                     extracted_correctly.append(key)
                 else:
-                    missing_values.append(key)
+                    missing_values.append(f"{key}='{expected_value}'")
 
             validation_details["extracted_correctly"] = extracted_correctly
             validation_details["missing_values"] = missing_values
 
-            # Binary scoring: ALL values must be extracted
             if len(extracted_correctly) == len(relevant_data):
                 success = True
                 accuracy_score = 100.0
             else:
-                accuracy_score = 0.0
                 error_message = f"Missing extracted values: {', '.join(missing_values)}"
 
         except Exception as e:
@@ -167,7 +177,7 @@ class GmailValidator:
 
         return TaskResult(
             task_name="Email Data Extraction",
-            prompt="Extract specific data from email content",
+            prompt="Find invoice email and extract invoice number, total amount, and due date",
             success=success,
             latency=0.0,
             accuracy_score=accuracy_score,
@@ -178,10 +188,15 @@ class GmailValidator:
 
     @staticmethod
     def validate_count_unread(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 4: Count unread emails.
+        """Validate Task 4: Count unread emails (MEDIUM).
 
-        Expected: Bot reports a numeric count of unread emails and uses
-        relevant terms ("unread", "emails", a number or "no").
+        Expected: Bot reports how many unread emails are in the inbox.
+        Count is live (not pinned), so we check structural correctness:
+        response must mention "unread" AND contain a number (or "no"/"zero"/"none").
+
+        Conditions:
+          1. "unread" appears in response
+          2. A digit OR "no unread"/"zero"/"none" appears (explicit count or zero-state)
         """
         success = False
         accuracy_score = 0.0
@@ -191,30 +206,24 @@ class GmailValidator:
         try:
             response_lower = response.lower()
 
-            # Must mention "unread" and "email" (or "inbox")
             has_unread = "unread" in response_lower
-            has_email_ref = "email" in response_lower or "inbox" in response_lower
-            # Must contain a digit or explicit "no" / "zero" / "none"
             has_count = bool(re.search(r"\d+", response_lower)) or any(
-                word in response_lower for word in ("no unread", "zero", "none", "0")
+                phrase in response_lower for phrase in ("no unread", "zero", "none", "0 unread")
             )
 
             validation_details["has_unread_keyword"] = has_unread
-            validation_details["has_email_reference"] = has_email_ref
             validation_details["has_count"] = has_count
 
-            if has_unread and has_email_ref and has_count:
+            if has_unread and has_count:
                 success = True
                 accuracy_score = 100.0
-            elif has_unread and has_email_ref:
-                accuracy_score = 60.0
-                error_message = "Response mentions unread emails but does not include a count"
-            elif has_unread:
-                accuracy_score = 30.0
-                error_message = "Response mentions 'unread' but lacks email context and count"
             else:
-                accuracy_score = 0.0
-                error_message = "Response does not mention 'unread' emails"
+                missing_parts = []
+                if not has_unread:
+                    missing_parts.append("keyword 'unread'")
+                if not has_count:
+                    missing_parts.append("a count (digit or 'no unread'/'zero'/'none')")
+                error_message = f"Missing: {'; '.join(missing_parts)}"
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"
@@ -232,10 +241,14 @@ class GmailValidator:
 
     @staticmethod
     def validate_search_by_sender(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 5: Search emails by sender.
+        """Validate Task 5: Search emails by sender (MEDIUM).
 
-        Expected: Bot found the test email sent from support@example.com and
-        reports at least the sender address or subject in its response.
+        Expected: Bot found the seeded email from support@example.com and reported
+        the sender address AND the seeded subject.
+
+        Conditions:
+          1. "support@example.com" appears in response (sender address)
+          2. sender_search_subject appears in response (seeded email subject)
         """
         sender_email = setup_data.get("sender_search_email", "support@example.com")
         sender_subject = setup_data.get("sender_search_subject", "")
@@ -252,25 +265,21 @@ class GmailValidator:
             response_lower = response.lower()
 
             has_sender = sender_email.lower() in response_lower
-            has_subject = sender_subject and sender_subject.lower() in response_lower
-            has_email_ref = "email" in response_lower or "message" in response_lower or "found" in response_lower
+            has_subject = bool(sender_subject) and sender_subject.lower() in response_lower
 
             validation_details["has_sender"] = has_sender
-            validation_details["has_subject"] = bool(has_subject)
-            validation_details["has_email_reference"] = has_email_ref
+            validation_details["has_subject"] = has_subject
 
             if has_sender and has_subject:
                 success = True
                 accuracy_score = 100.0
-            elif has_sender and has_email_ref:
-                success = True
-                accuracy_score = 80.0
-            elif has_sender:
-                accuracy_score = 50.0
-                error_message = "Found sender address but response lacks email context"
             else:
-                accuracy_score = 0.0
-                error_message = f"Response does not mention expected sender '{sender_email}'"
+                missing_parts = []
+                if not has_sender:
+                    missing_parts.append(f"sender address '{sender_email}'")
+                if not has_subject:
+                    missing_parts.append(f"seeded subject '{sender_subject}'")
+                error_message = f"Missing: {'; '.join(missing_parts)}"
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"
@@ -288,10 +297,13 @@ class GmailValidator:
 
     @staticmethod
     def validate_label_management(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 6: Create a Gmail label.
+        """Validate Task 6: Create Gmail label (MEDIUM).
 
-        Expected: Bot confirms the label "Important Projects" was created,
-        using relevant terms like "label", "created", "Important Projects".
+        Expected: Bot created the label "Important Projects" and confirmed it.
+
+        Conditions:
+          1. "important projects" appears in response (label name)
+          2. A creation-confirmation word appears ("created", "added", "successfully", etc.)
         """
         expected_label = setup_data.get("new_label_name", "Important Projects")
 
@@ -302,31 +314,26 @@ class GmailValidator:
 
         try:
             response_lower = response.lower()
-            expected_label_lower = expected_label.lower()
 
-            has_label_keyword = "label" in response_lower
-            has_label_name = expected_label_lower in response_lower
-            has_created_keyword = any(
+            has_label_name = expected_label.lower() in response_lower
+            has_created = any(
                 word in response_lower
                 for word in ("created", "added", "made", "successfully", "new label")
             )
 
-            validation_details["has_label_keyword"] = has_label_keyword
             validation_details["has_label_name"] = has_label_name
-            validation_details["has_created_keyword"] = has_created_keyword
+            validation_details["has_created_keyword"] = has_created
 
-            if has_label_name and has_created_keyword:
+            if has_label_name and has_created:
                 success = True
                 accuracy_score = 100.0
-            elif has_label_name and has_label_keyword:
-                success = True
-                accuracy_score = 80.0
-            elif has_label_keyword and has_created_keyword:
-                accuracy_score = 40.0
-                error_message = f"Mentions label creation but does not name '{expected_label}'"
             else:
-                accuracy_score = 0.0
-                error_message = f"Response does not confirm creation of label '{expected_label}'"
+                missing_parts = []
+                if not has_label_name:
+                    missing_parts.append(f"label name '{expected_label}'")
+                if not has_created:
+                    missing_parts.append("creation confirmation ('created', 'added', 'successfully')")
+                error_message = f"Missing: {'; '.join(missing_parts)}"
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"
@@ -344,10 +351,14 @@ class GmailValidator:
 
     @staticmethod
     def validate_email_with_attachment(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 7: Find emails with PDF attachments from last week.
+        """Validate Task 7: Find emails with PDF attachments (HARD).
 
-        Expected: Bot reports at least the test email containing a PDF attachment
-        and uses relevant terms: "pdf", "attachment", a recent date or "last week".
+        Expected: Bot found the seeded Q4 Financial Report email and reported
+        the subject plus mentioned PDF/attachment.
+
+        Conditions:
+          1. attachment_email_subject appears in response (seeded email subject)
+          2. "pdf" appears in response (the attachment type mentioned in email body)
         """
         attachment_subject = setup_data.get("attachment_email_subject", "")
 
@@ -359,34 +370,22 @@ class GmailValidator:
         try:
             response_lower = response.lower()
 
+            has_subject = bool(attachment_subject) and attachment_subject.lower() in response_lower
             has_pdf = "pdf" in response_lower
-            has_attachment = "attachment" in response_lower or "attached" in response_lower
-            has_subject = attachment_subject and attachment_subject.lower() in response_lower
-            has_result = any(
-                word in response_lower
-                for word in ("found", "email", "message", "result", "here")
-            )
 
-            validation_details["has_pdf_keyword"] = has_pdf
-            validation_details["has_attachment_keyword"] = has_attachment
-            validation_details["has_subject"] = bool(has_subject)
-            validation_details["has_result_context"] = has_result
+            validation_details["has_subject"] = has_subject
+            validation_details["has_pdf"] = has_pdf
 
-            if has_pdf and has_attachment and has_subject:
+            if has_subject and has_pdf:
                 success = True
                 accuracy_score = 100.0
-            elif has_pdf and has_attachment and has_result:
-                success = True
-                accuracy_score = 80.0
-            elif has_pdf and has_attachment:
-                accuracy_score = 50.0
-                error_message = "Mentions PDF attachment but result context is unclear"
-            elif has_pdf or has_attachment:
-                accuracy_score = 20.0
-                error_message = "Partial mention of PDF/attachment but incomplete response"
             else:
-                accuracy_score = 0.0
-                error_message = "Response does not mention PDF attachments"
+                missing_parts = []
+                if not has_subject:
+                    missing_parts.append(f"seeded email subject '{attachment_subject}'")
+                if not has_pdf:
+                    missing_parts.append("keyword 'pdf'")
+                error_message = f"Missing: {'; '.join(missing_parts)}"
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"
@@ -404,10 +403,15 @@ class GmailValidator:
 
     @staticmethod
     def validate_draft_email(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 8: Draft an email about Q1 results.
+        """Validate Task 8: Draft an email (HARD).
 
-        Expected: Bot confirms a draft was created/saved, mentioning
-        the recipient (team@example.com) and subject or "Q1".
+        Expected: Bot created a draft to team@example.com about Q1 results
+        and confirmed the draft was saved.
+
+        Conditions:
+          1. "team@example.com" appears in response (draft recipient)
+          2. "draft" appears in response (confirms a draft was created, not sent)
+          3. "q1" OR "quarter" OR "results" appears (draft subject matter)
         """
         draft_recipient = setup_data.get("draft_recipient", "team@example.com")
 
@@ -419,34 +423,26 @@ class GmailValidator:
         try:
             response_lower = response.lower()
 
-            has_draft = "draft" in response_lower
             has_recipient = draft_recipient.lower() in response_lower
-            has_q1 = "q1" in response_lower or "quarter" in response_lower or "results" in response_lower
-            has_created = any(
-                word in response_lower
-                for word in ("created", "saved", "drafted", "composed", "written")
-            )
+            has_draft = "draft" in response_lower
+            has_q1 = any(kw in response_lower for kw in ("q1", "quarter", "results"))
 
-            validation_details["has_draft_keyword"] = has_draft
             validation_details["has_recipient"] = has_recipient
+            validation_details["has_draft_keyword"] = has_draft
             validation_details["has_q1_reference"] = has_q1
-            validation_details["has_created_keyword"] = has_created
 
-            if has_draft and has_recipient and has_q1:
+            if has_recipient and has_draft and has_q1:
                 success = True
                 accuracy_score = 100.0
-            elif has_draft and (has_recipient or has_q1) and has_created:
-                success = True
-                accuracy_score = 80.0
-            elif has_draft and has_created:
-                accuracy_score = 50.0
-                error_message = "Draft confirmed but missing recipient or Q1 reference"
-            elif has_draft:
-                accuracy_score = 25.0
-                error_message = "Mentions draft but lacks confirmation of creation"
             else:
-                accuracy_score = 0.0
-                error_message = "Response does not confirm draft creation"
+                missing_parts = []
+                if not has_recipient:
+                    missing_parts.append(f"recipient '{draft_recipient}'")
+                if not has_draft:
+                    missing_parts.append("keyword 'draft'")
+                if not has_q1:
+                    missing_parts.append("Q1/quarter/results reference")
+                error_message = f"Missing: {'; '.join(missing_parts)}"
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"
@@ -464,11 +460,15 @@ class GmailValidator:
 
     @staticmethod
     def validate_email_summary(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 9: Summarize the last 5 emails.
+        """Validate Task 9: Summarize last 5 emails (HARD).
 
-        Expected: Bot provides a summary referencing multiple emails and
-        uses terms like "summary", "inbox", "email(s)", and ideally
-        mentions at least one of the seeded test subjects.
+        Expected: Bot summarized multiple inbox emails and mentioned at least
+        2 of the 5 seeded subject topics in its response.
+        Seeded subjects include "Team Meeting Notes", "Budget Approval", etc.
+
+        Conditions:
+          1. At least 3 of the 5 seeded summary_subjects appear in response
+          2. "summary" OR "summarize" OR "here are" OR "overview" appears
         """
         summary_subjects = setup_data.get("summary_email_subjects", [])
 
@@ -480,37 +480,28 @@ class GmailValidator:
         try:
             response_lower = response.lower()
 
-            has_summary = any(
-                word in response_lower
-                for word in ("summary", "summarize", "overview", "here are", "below are")
-            )
-            has_email_ref = "email" in response_lower or "inbox" in response_lower or "message" in response_lower
-            # Check if response mentions a numeric count (5, four, three, etc.)
-            has_count = bool(re.search(r"\b[1-9]\b|\bfive\b|\bfour\b|\bthree\b|\btwo\b|\bone\b", response_lower))
-            # Count how many seeded subjects appear in the response
             matched_subjects = [s for s in summary_subjects if s.lower() in response_lower]
+            has_summary_keyword = any(
+                kw in response_lower
+                for kw in ("summary", "summarize", "here are", "overview", "below are")
+            )
 
-            validation_details["has_summary_keyword"] = has_summary
-            validation_details["has_email_reference"] = has_email_ref
-            validation_details["has_count"] = has_count
             validation_details["matched_subjects"] = matched_subjects
-            validation_details["matched_subjects_count"] = len(matched_subjects)
+            validation_details["matched_count"] = len(matched_subjects)
+            validation_details["has_summary_keyword"] = has_summary_keyword
 
-            if has_summary and has_email_ref and len(matched_subjects) >= 1:
+            if len(matched_subjects) >= 3 and has_summary_keyword:
                 success = True
                 accuracy_score = 100.0
-            elif has_summary and has_email_ref and has_count:
-                success = True
-                accuracy_score = 80.0
-            elif has_summary and has_email_ref:
-                accuracy_score = 50.0
-                error_message = "Provides a summary but does not reference expected email content"
-            elif has_email_ref:
-                accuracy_score = 20.0
-                error_message = "References emails but does not appear to summarize them"
             else:
-                accuracy_score = 0.0
-                error_message = "Response does not summarize inbox emails"
+                missing_parts = []
+                if len(matched_subjects) < 3:
+                    missing_parts.append(
+                        f"at least 3 seeded email subjects (found {len(matched_subjects)}: {matched_subjects})"
+                    )
+                if not has_summary_keyword:
+                    missing_parts.append("summary keyword ('summary', 'here are', 'overview')")
+                error_message = f"Missing: {'; '.join(missing_parts)}"
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"

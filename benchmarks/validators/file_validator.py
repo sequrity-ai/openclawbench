@@ -452,9 +452,8 @@ class FileValidator:
                 validation_details["found_diffs"] = found_diffs
                 validation_details["missing_diffs"] = missing_diffs
 
-                # Binary scoring: pass only if at least 5 out of 6 diffs are found
-                # (allowing some flexibility in how differences are reported)
-                if len(found_diffs) >= 5:
+                # Binary scoring: pass only if ALL 6 diffs are found
+                if len(found_diffs) == 6:
                     success = True
                     accuracy_score = 100.0
                 else:
@@ -614,22 +613,24 @@ class FileValidator:
                 validation_details["has_required_keys"] = has_all_keys
                 validation_details["found_keys"] = list(analysis_data.keys())
 
-                # Expected: 32 errors, 32 warns (from if/elif logic with i%10 and i%7 and i%15)
-                # Total: 250 entries
+                # Seeded log: 250 entries (i=0..249)
+                # i%10==0 → ERROR: 25 entries (0,10,...,240)
+                # elif i%7==0 → WARN: 32 entries
+                # elif i%15==0 (not %10 or %7) → ERROR: 8 entries (15,30,45,75,135,165,195,225)
+                # Total ERRORs = 25 + 8 = 33, WARNs = 32, total = 250
                 if has_all_keys:
                     error_count = analysis_data.get("error_count", 0)
                     warn_count = analysis_data.get("warn_count", 0)
                     total = analysis_data.get("total_entries", 0)
 
-                    # Check if counts are reasonable (allow small variation in parsing)
-                    if 28 <= error_count <= 36 and 28 <= warn_count <= 36 and 240 <= total <= 260:
+                    if error_count == 33 and warn_count == 32 and total == 250:
                         success = True
                         accuracy_score = 100.0
                     else:
-                        error_message = f"Unexpected counts: errors={error_count}, warns={warn_count}, total={total}"
-                        validation_details["expected_error_range"] = "28-36"
-                        validation_details["expected_warn_range"] = "28-36"
-                        validation_details["expected_total_range"] = "240-260"
+                        error_message = f"Incorrect counts: errors={error_count} (expected 33), warns={warn_count} (expected 32), total={total} (expected 250)"
+                        validation_details["expected_error_count"] = 33
+                        validation_details["expected_warn_count"] = 32
+                        validation_details["expected_total_entries"] = 250
                 else:
                     error_message = f"Missing required keys: {set(required_keys) - set(analysis_data.keys())}"
 
@@ -680,32 +681,36 @@ class FileValidator:
                 # - Zero quantities: 1002, 1010, 1017, 1028, 1038, 1045 (6 items)
                 # - Duplicate names: Widget A (1001, 1008, 1020) (3 occurrences)
 
-                # Check if report identifies major issue categories
-                issues_found = 0
-
-                # Look for evidence of issue detection (flexible structure)
+                # Pin to specific seeded data quality issues in inventory.csv:
+                # - Missing names: items 1004, 1015 (empty name field)
+                # - Negative quantities: items 1003 (qty=-5), 1012 (qty=-10)
+                # - Duplicate name "Widget A": items 1001, 1008, 1020
                 report_str = json.dumps(report_data).lower()
 
-                if "missing" in report_str or "empty" in report_str or "null" in report_str:
-                    issues_found += 1
-                    validation_details["detected_missing_values"] = True
+                # Check 1: item 1004 or 1015 flagged for missing name
+                missing_name_found = "1004" in report_str or "1015" in report_str
+                # Check 2: item 1003 or 1012 flagged for negative quantity
+                negative_qty_found = "1003" in report_str or "1012" in report_str
+                # Check 3: "widget a" flagged as duplicate
+                duplicate_found = "widget a" in report_str
 
-                if "negative" in report_str or "invalid" in report_str:
-                    issues_found += 1
-                    validation_details["detected_negative_values"] = True
+                validation_details["missing_name_item_found"] = missing_name_found
+                validation_details["negative_qty_item_found"] = negative_qty_found
+                validation_details["duplicate_name_found"] = duplicate_found
 
-                if "duplicate" in report_str:
-                    issues_found += 1
-                    validation_details["detected_duplicates"] = True
-
-                validation_details["issue_categories_found"] = issues_found
-
-                # Pass if at least 2 major issue types are detected
-                if issues_found >= 2:
+                # Binary scoring: pass only if ALL 3 issue categories identified with pinned items
+                if missing_name_found and negative_qty_found and duplicate_found:
                     success = True
                     accuracy_score = 100.0
                 else:
-                    error_message = f"Only {issues_found}/3 issue categories detected"
+                    missing_parts = []
+                    if not missing_name_found:
+                        missing_parts.append("missing-name items (1004 or 1015)")
+                    if not negative_qty_found:
+                        missing_parts.append("negative-quantity items (1003 or 1012)")
+                    if not duplicate_found:
+                        missing_parts.append("duplicate name 'Widget A'")
+                    error_message = f"Missing issue categories: {'; '.join(missing_parts)}"
 
         except json.JSONDecodeError as e:
             error_message = f"Invalid JSON format: {str(e)}"

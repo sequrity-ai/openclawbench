@@ -1,20 +1,29 @@
 """Summarize benchmark scenario.
 
-Tasks (9):
+Tasks (9) — all validators pinned to specific facts in the source material:
     Easy:
-       - Task 1 (URL Summary): Summarize the Python Wikipedia article
-       - Task 2 (YouTube Summary): Summarize the 'Python in 100 Seconds' YouTube video
-       - Task 3 (Comparison Summary): Compare and summarize two articles about Python
+       - Task 1 (URL Summary): Summarize Python Wikipedia article
+         → must mention Guido van Rossum + 1991
+       - Task 2 (YouTube Summary): Summarize 'Python in 100 Seconds' by Fireship
+         → must identify the video + mention interpreted/dynamic/beginner
+       - Task 3 (Comparison Summary): Compare Wikipedia vs python.org/about
+         → must reference both sources + mention open source/community/philosophy
 
     Medium:
-       - Task 4 (Executive Summary): Read business_report.txt and write an executive summary
-       - Task 5 (Technical Abstract): Read technical_paper.txt and write a technical abstract
-       - Task 6 (Comparative Summary): Read two AI in healthcare articles and compare them
+       - Task 4 (Executive Summary): Summarize business_report.txt (TechCorp Q4 2025)
+         → must mention $4.2B revenue + 23% YoY growth
+       - Task 5 (Technical Abstract): Summarize technical_paper.txt (ML time series)
+         → must mention LSTM + Temporal Fusion Transformer
+       - Task 6 (Comparative Summary): Compare ai_article_a.txt vs ai_article_b.txt
+         → must mention 'drug discovery' (article_a) + 'bias' (article_b)
 
     Hard:
-       - Task 7 (Multi-Level Summary): Read quantum_computing.txt and provide three levels of summary
-       - Task 8 (Q&A Generation): Read renewable_energy.txt and generate a Q&A study guide
-       - Task 9 (Sentiment Analysis Summary): Read social_media_impact.txt and include sentiment analysis
+       - Task 7 (Multi-Level Summary): Summarize quantum_computing.txt at 3 levels
+         → must mention qubit + superposition
+       - Task 8 (Q&A Generation): Generate Q&A from renewable_energy.txt
+         → must mention 38% (global renewable share in 2025) + lithium
+       - Task 9 (Sentiment Analysis): Summarize social_media_impact.txt with sentiment
+         → must mention '5 billion' users + both 'positive' and 'negative'
 
 Setup:
     Creates local documents at /tmp/openclaw_benchmark/documents/ including business
@@ -242,6 +251,67 @@ class SummarizeScenario(ScenarioBase):
         try:
             logger.info("Setting up Summarize benchmark...")
 
+            # Ground-truth facts for validators (pinned to seeded document content)
+            self.setup_data = {
+                # Task 1: Python Wikipedia article
+                "url_facts": {
+                    "url": "https://en.wikipedia.org/wiki/Python_(programming_language)",
+                    "creator": "Guido van Rossum",
+                    "year": "1991",
+                },
+                # Task 2: Python in 100 Seconds YouTube video
+                "youtube_facts": {
+                    "url": "https://www.youtube.com/watch?v=x7X9w_GIm1s",
+                    "channel": "Fireship",
+                    "key_properties": ["interpreted", "dynamic", "beginner"],
+                },
+                # Task 3: Wikipedia vs python.org comparison
+                "comparison_facts": {
+                    "source_1": "https://en.wikipedia.org/wiki/Python_(programming_language)",
+                    "source_2": "https://www.python.org/about/",
+                    "python_org_themes": ["open source", "community", "philosophy"],
+                },
+                # Task 4: business_report.txt — TechCorp Q4 2025
+                "business_facts": {
+                    "company": "TechCorp International",
+                    "quarter": "Q4 2025",
+                    "revenue_billion": "4.2",
+                    "yoy_growth_pct": "23",
+                    "cloud_revenue_billion": "1.8",
+                },
+                # Task 5: technical_paper.txt — ML time series forecasting
+                "technical_facts": {
+                    "topic": "time series forecasting",
+                    "models": ["LSTM", "Temporal Fusion Transformer", "XGBoost", "Prophet"],
+                    "best_model": "Temporal Fusion Transformer",
+                },
+                # Task 6: ai_article_a.txt (pro-AI) vs ai_article_b.txt (cautionary)
+                "comparison_ai_facts": {
+                    "article_a_perspective": "optimistic",
+                    "article_a_unique_term": "drug discovery",
+                    "article_b_perspective": "cautionary",
+                    "article_b_unique_term": "bias",
+                },
+                # Task 7: quantum_computing.txt
+                "quantum_facts": {
+                    "topic": "quantum computing",
+                    "key_terms": ["qubit", "superposition", "entanglement"],
+                },
+                # Task 8: renewable_energy.txt
+                "renewable_facts": {
+                    "topic": "global renewable energy transition",
+                    "renewable_pct_2025": "38",
+                    "storage_tech": "lithium-ion",
+                },
+                # Task 9: social_media_impact.txt
+                "sentiment_facts": {
+                    "topic": "social media impact on society",
+                    "user_count": "5 billion",
+                    "sentiment_sections": ["positive", "negative"],
+                    "overall_sentiment": "mixed",
+                },
+            }
+
             if self.remote_manager:
                 # Create docs locally, then upload to remote server via SFTP
                 logger.info("Creating seed documents locally...")
@@ -263,7 +333,7 @@ class SummarizeScenario(ScenarioBase):
                     self.remote_manager.sftp_client.put(local_path, remote_path)
                     logger.info(f"✓ Uploaded {filename} to {remote_path}")
 
-                # Update paths in workspace_data to remote paths
+                # Update paths in workspace_data to remote paths; merge with ground-truth facts
                 remote_workspace_data = {
                     "workspace_dir": self.remote_manager.workspace_path,
                     "documents_dir": remote_docs_dir,
@@ -275,11 +345,11 @@ class SummarizeScenario(ScenarioBase):
                     "qa_article": f"{remote_docs_dir}/renewable_energy.txt",
                     "sentiment_article": f"{remote_docs_dir}/social_media_impact.txt",
                 }
-                self.setup_data = remote_workspace_data
+                self.setup_data.update(remote_workspace_data)
             else:
                 # Create seed documents for Tasks 4-9 locally (fallback for local mode)
                 workspace_data = self.summarize_setup.create_workspace()
-                self.setup_data = {**workspace_data}
+                self.setup_data.update(workspace_data)
 
             logger.info("Setup complete - seed documents created and validation criteria configured")
 

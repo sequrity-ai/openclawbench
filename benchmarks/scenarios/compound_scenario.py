@@ -5,25 +5,35 @@ Architecture:
     Results from one skill feed into the next (e.g. get weather → file GitHub issue
     reporting the conditions). Validates both skills were exercised and outputs combined.
 
-Tasks (9):
+Tasks (9) — pinned validation facts:
     Easy:
        - Task 1 (Weather + Web Research): Check weather in Tokyo, search for travel tips
+         → must mention "tokyo" + temperature + packing/travel word
        - Task 2 (Web Search + Summarize): Search for a Python async article and summarize it
+         → must mention "python" + "async" + summary language
        - Task 3 (GitHub + Summarize): Read src/utils.js from the test repo, summarize its purpose
+         → must mention "fetchdata" + "processitems" (seeded file functions)
 
     Medium:
-       - Task 4 (Weather + GitHub Issue): Check weather in London, file a GitHub issue reporting conditions
-       - Task 5 (Web Research + GitHub Issue): Research 'async programming best practices', file GitHub issue
-       - Task 6 (Multi-City Weather + Context): Compare weather in London, Tokyo, Paris using web context
+       - Task 4 (Weather + GitHub Issue): Check weather in London, file issue '[BENCHMARK TEST] Weather Report'
+         → must mention "london" + "weather report" + "#" (issue number)
+       - Task 5 (Web Research + GitHub Issue): Research async best practices, file '[BENCHMARK TEST] Async Research'
+         → must mention "async" + "async research" + "#" (issue number)
+       - Task 6 (Multi-City Weather + Context): Compare weather in London, Tokyo, Paris
+         → must mention all three cities + comparison word
 
     Hard:
        - Task 7 (GitHub Repo + Web Research): Get repo info then research JavaScript async online
-       - Task 8 (Web + Weather + GitHub Chain): Search AI news, check weather, file GitHub issue with combined summary
-       - Task 9 (Research + Summarize + GitHub): Research AI topic online, summarize findings, file GitHub issue
+         → must mention "benchmark test repository" + "openclaw-sandbox" (seeded README) + web word
+       - Task 8 (Web + Weather + GitHub Chain): Search AI news, check SF weather, file '[BENCHMARK TEST] Daily Briefing'
+         → must mention "san francisco" + "daily briefing" + "#" (issue number)
+       - Task 9 (Research + Summarize + GitHub): Research ML healthcare, file '[BENCHMARK TEST] ML Healthcare Research'
+         → must mention "healthcare" + "ml healthcare research" + "#" (issue number)
 
 Setup:
     Uses the same GitHub test repository as the GitHub scenario (seeded with data).
-    No additional local files needed.
+    src/utils.js in the seeded repo defines fetchData() and processItems() — pinned in T3.
+    README.md in the seeded repo contains "Benchmark Test Repository" / "openclaw-sandbox" — pinned in T7.
 
 Required Skills:
     steipete/weather, tavily-search, steipete/github, steipete/summarize

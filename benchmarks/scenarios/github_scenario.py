@@ -4,29 +4,44 @@ Architecture:
     Uses a dedicated test repository seeded with real data via the GitHub API.
     The benchmark account token seeds the repo before tasks run and cleans it
     up afterward. The bot's GitHub skill interacts with the same repo.
+    All tasks are independently validatable — no task depends on another task
+    having succeeded. All required state is pre-seeded in setup().
 
-Tasks (9):
+Tasks (9) — all validators pinned to seeded repository facts:
     Easy:
        - Task 1 (Issue Creation): Create a new issue titled '[BENCHMARK TEST] Test Issue'
+         → must mention "benchmark test" + issue number ("#")
        - Task 2 (List Issues): List all open issues and show their titles
+         → must mention "fetchdata"/"fetch" + "retry" (seeded issue titles)
        - Task 3 (Repository Info): Get the repo description, star count, and fork count
+         → must mention "benchmark test repository" + "openclaw-sandbox" (README content)
 
     Medium:
        - Task 4 (Recent Commits): Show the last 5 commits with messages and authors
+         → must mention "add utility functions" + "add api client" (seeded commit messages)
        - Task 5 (Pull Request List): List all open pull requests
+         → must mention "error handler" + "benchmark" (seeded PR title)
        - Task 6 (Issue Labels): What labels are available in the repository?
+         → must mention "benchmark-seed" (seeded label name)
 
     Hard:
        - Task 7 (Contributor Stats): Who are the top 3 contributors by commit count?
+         → must mention repo_owner username (all commits authored by repo_owner)
        - Task 8 (File Contents): Get the contents of src/utils.js — what functions does it define?
+         → must mention "fetchdata" + "processitems" (functions defined in seeded file)
        - Task 9 (Release Info): What was the latest release and when was it published?
+         → must mention "v1.0.0-benchmark" (seeded release tag)
 
 Setup:
     Seeds the test repo via GitHub API with:
-    - 5 JS source files on main branch (5 commits)
+    - README.md: "# Benchmark Test Repository" description referencing "openclaw-sandbox"
+    - 5 JS source files on main branch (5 commits with seeded messages)
+    - src/utils.js defines fetchData() and processItems() async functions
     - 1 feature branch with 1 additional commit
     - 1 open pull request: '[BENCHMARK] Add error handler feature'
     - 1 release tagged v1.0.0-benchmark
+    - 1 label: 'benchmark-seed'
+    - 3 open issues: Bug/fetchData, Feature/retry logic, Docs/README
     All seeded data is removed during cleanup.
 
 Required Skills:
@@ -266,14 +281,45 @@ class GitHubScenario(ScenarioBase):
             seed_info = self.github_setup.seed_repo_data(self.test_repo_owner, self.test_repo_name)
             logger.info(f"Seeding complete: {seed_info}")
 
-            # Store setup data for validation
+            # Store setup data for validation — ground-truth facts pinned to seeded state
             self.setup_data = {
                 "test_id": test_id,
-                "issue_title": "[BENCHMARK TEST] Test Issue",
                 "repo_owner": self.test_repo_owner,
                 "repo_name": self.test_repo_name,
                 "github_setup": self.github_setup,  # Pass for validation
                 "seed_info": seed_info,
+                # Task 1: Issue Creation — bot creates issue with this title
+                "issue_title": "[BENCHMARK TEST] Test Issue",
+                "issue_title_phrase": "benchmark test",
+                # Task 2: List Issues — seeded issue titles (independent of T1)
+                "seeded_issue_keywords": ["fetchdata", "retry"],
+                "seeded_issue_titles": [
+                    "[BENCHMARK SEED] Bug: fetchData returns null on timeout",
+                    "[BENCHMARK SEED] Feature: add retry logic to processItems",
+                    "[BENCHMARK SEED] Docs: update README with API examples",
+                ],
+                # Task 3: Repository Info — README content
+                "readme_heading": "Benchmark Test Repository",
+                "readme_repo_ref": "openclaw-sandbox",
+                # Task 4: Recent Commits — seeded commit messages
+                "seeded_commit_messages": [
+                    "Add utility functions",
+                    "Add API client",
+                    "Add data processor",
+                    "Add configuration module",
+                    "Add main entry point",
+                ],
+                # Task 5: Pull Request — seeded PR title
+                "seeded_pr_title": "[BENCHMARK] Add error handler feature",
+                "seeded_pr_phrase": "error handler",
+                # Task 6: Labels — seeded label
+                "seeded_label": "benchmark-seed",
+                # Task 7: Contributors — all commits are by repo_owner
+                "sole_contributor": self.test_repo_owner,
+                # Task 8: File Contents — functions in src/utils.js
+                "utils_functions": ["fetchData", "processItems"],
+                # Task 9: Release — seeded release tag
+                "seeded_release_tag": "v1.0.0-benchmark",
             }
 
             logger.info(f"Setup complete for {self.test_repo_owner}/{self.test_repo_name}")

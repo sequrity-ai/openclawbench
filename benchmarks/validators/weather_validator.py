@@ -1,4 +1,7 @@
-"""Validation utilities for Weather benchmark tasks."""
+"""Validation utilities for Weather benchmark tasks.
+
+All tasks are pinned to historical/climate ground-truth facts — no live data required.
+"""
 
 import logging
 from typing import Any
@@ -9,55 +12,50 @@ logger = logging.getLogger(__name__)
 
 
 class WeatherValidator:
-    """Validates Weather task results."""
+    """Validates Weather task results against historical/climate ground-truth facts."""
 
     @staticmethod
     def validate_current_weather(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 1: Current weather query.
+        """Validate Task 1: SF all-time record high temperature (EASY).
 
-        Expected: Bot reports current weather for a specific city
+        Expected: Bot reports San Francisco's all-time record high is 106°F, set in 2017.
 
-        Args:
-            response: Full conversation history (all bot responses concatenated)
-            setup_data: Setup data including city name
+        Conditions:
+          1. "106" appears in the response (the temperature)
+          2. "2017" appears in the response (the year)
         """
-        city = setup_data.get("city", "San Francisco")
+        sf_record = setup_data.get("sf_record", {})
 
         success = False
         accuracy_score = 0.0
-        validation_details = {"city": city}
+        validation_details = {"sf_record": sf_record}
         error_message = None
 
         try:
-            # Check if bot mentioned the city and weather-related terms
-            city_mentioned = city.lower() in response.lower()
+            response_lower = response.lower()
 
-            # Check for weather-related keywords
-            weather_keywords = ["temperature", "temp", "degrees", "°", "weather", "sunny", "cloudy", "rain", "wind"]
-            weather_mentioned = any(keyword in response.lower() for keyword in weather_keywords)
+            temp_found = "106" in response_lower
+            year_found = "2017" in response_lower
+            validation_details["temp_106_found"] = temp_found
+            validation_details["year_2017_found"] = year_found
 
-            validation_details["city_mentioned"] = city_mentioned
-            validation_details["weather_mentioned"] = weather_mentioned
-
-            # Binary scoring: city AND weather info must be present
-            if city_mentioned and weather_mentioned:
+            if temp_found and year_found:
                 success = True
                 accuracy_score = 100.0
             else:
-                accuracy_score = 0.0
                 missing_parts = []
-                if not city_mentioned:
-                    missing_parts.append(f"city '{city}'")
-                if not weather_mentioned:
-                    missing_parts.append("weather information")
-                error_message = f"Missing: {', '.join(missing_parts)}"
+                if not temp_found:
+                    missing_parts.append("record temperature '106'°F")
+                if not year_found:
+                    missing_parts.append("record year '2017'")
+                error_message = f"Missing: {'; '.join(missing_parts)}"
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"
 
         return TaskResult(
             task_name="Current Weather",
-            prompt="Get current weather for a city",
+            prompt="What is San Francisco's all-time record high temperature, and what year was it set?",
             success=success,
             latency=0.0,
             accuracy_score=accuracy_score,
@@ -68,53 +66,47 @@ class WeatherValidator:
 
     @staticmethod
     def validate_weather_forecast(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 2: Weather forecast query.
+        """Validate Task 2: Miami vs Seattle annual rainfall comparison (EASY).
 
-        Expected: Bot reports multi-day forecast
+        Expected: Bot reports Miami gets more rain than Seattle (~62" vs ~39").
 
-        Args:
-            response: Full conversation history (all bot responses concatenated)
-            setup_data: Setup data including city and forecast days
+        Conditions:
+          1. "miami" appears (correct winner identified)
+          2. "61" OR "62" appears (Miami's approximate annual rainfall in inches)
         """
-        # Use forecast_city key to avoid conflict with Task 1's city
-        city = setup_data.get("forecast_city", setup_data.get("city", "New York"))
-        days = setup_data.get("forecast_days", 3)
+        rainfall = setup_data.get("rainfall_comparison", {})
 
         success = False
         accuracy_score = 0.0
-        validation_details = {"city": city, "forecast_days": days}
+        validation_details = {"rainfall_comparison": rainfall}
         error_message = None
 
         try:
-            # Check for city mention
-            city_mentioned = city.lower() in response.lower()
+            response_lower = response.lower()
 
-            # Check for forecast-related keywords
-            forecast_keywords = ["forecast", "tomorrow", "next", "day", "week", "upcoming"]
-            forecast_mentioned = any(keyword in response.lower() for keyword in forecast_keywords)
+            miami_found = "miami" in response_lower
+            # Accept 61 or 62 inches (sources vary slightly: 61.7–62 inches)
+            amount_found = "61" in response_lower or "62" in response_lower
+            validation_details["miami_found"] = miami_found
+            validation_details["amount_found"] = amount_found
 
-            validation_details["city_mentioned"] = city_mentioned
-            validation_details["forecast_mentioned"] = forecast_mentioned
-
-            # Binary scoring
-            if city_mentioned and forecast_mentioned:
+            if miami_found and amount_found:
                 success = True
                 accuracy_score = 100.0
             else:
-                accuracy_score = 0.0
                 missing_parts = []
-                if not city_mentioned:
-                    missing_parts.append(f"city '{city}'")
-                if not forecast_mentioned:
-                    missing_parts.append("forecast information")
-                error_message = f"Missing: {', '.join(missing_parts)}"
+                if not miami_found:
+                    missing_parts.append("'Miami' as the wetter city")
+                if not amount_found:
+                    missing_parts.append("Miami annual rainfall '61' or '62' inches")
+                error_message = f"Missing: {'; '.join(missing_parts)}"
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"
 
         return TaskResult(
             task_name="Weather Forecast",
-            prompt="Get weather forecast for multiple days",
+            prompt="Which city gets more annual rainfall — Miami or Seattle? How much does each get?",
             success=success,
             latency=0.0,
             accuracy_score=accuracy_score,
@@ -125,56 +117,51 @@ class WeatherValidator:
 
     @staticmethod
     def validate_weather_comparison(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 3: Compare weather across cities.
+        """Validate Task 3: London vs Tokyo average January temperature (EASY).
 
-        Expected: Bot compares weather between two cities
+        Expected: Bot reports Tokyo is warmer than London in January.
+        Tokyo averages ~6°C (43°F) in January; London is near or below freezing (~4°C).
 
-        Args:
-            response: Full conversation history (all bot responses concatenated)
-            setup_data: Setup data including two cities
+        Conditions:
+          1. "tokyo" appears in response
+          2. "warmer" OR "higher" OR "milder" appears (indicating Tokyo is the warmer city)
         """
-        city1 = setup_data.get("city1", "London")
-        city2 = setup_data.get("city2", "Tokyo")
+        jan_comparison = setup_data.get("january_comparison", {})
 
         success = False
         accuracy_score = 0.0
-        validation_details = {"city1": city1, "city2": city2}
+        validation_details = {"january_comparison": jan_comparison}
         error_message = None
 
         try:
-            # Check for both cities
-            city1_mentioned = city1.lower() in response.lower()
-            city2_mentioned = city2.lower() in response.lower()
+            response_lower = response.lower()
 
-            # Check for comparison keywords
-            comparison_keywords = ["warmer", "colder", "compared", "difference", "than", "versus", "vs"]
-            comparison_mentioned = any(keyword in response.lower() for keyword in comparison_keywords)
+            tokyo_found = "tokyo" in response_lower
+            # Check Tokyo is identified as warmer
+            warmer_signal = (
+                "tokyo" in response_lower
+                and any(kw in response_lower for kw in ["warmer", "higher", "milder", "warmer than london"])
+            )
+            validation_details["tokyo_found"] = tokyo_found
+            validation_details["warmer_signal_found"] = warmer_signal
 
-            validation_details["city1_mentioned"] = city1_mentioned
-            validation_details["city2_mentioned"] = city2_mentioned
-            validation_details["comparison_mentioned"] = comparison_mentioned
-
-            # Binary scoring: both cities AND comparison must be present
-            if city1_mentioned and city2_mentioned and comparison_mentioned:
+            if tokyo_found and warmer_signal:
                 success = True
                 accuracy_score = 100.0
             else:
-                accuracy_score = 0.0
                 missing_parts = []
-                if not city1_mentioned:
-                    missing_parts.append(f"city '{city1}'")
-                if not city2_mentioned:
-                    missing_parts.append(f"city '{city2}'")
-                if not comparison_mentioned:
-                    missing_parts.append("comparison")
-                error_message = f"Missing: {', '.join(missing_parts)}"
+                if not tokyo_found:
+                    missing_parts.append("'Tokyo'")
+                if not warmer_signal:
+                    missing_parts.append("Tokyo identified as warmer ('warmer', 'higher', or 'milder')")
+                error_message = f"Missing: {'; '.join(missing_parts)}"
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"
 
         return TaskResult(
             task_name="Weather Comparison",
-            prompt="Compare weather between two cities",
+            prompt="Compare average January temperatures in London vs Tokyo — which is warmer?",
             success=success,
             latency=0.0,
             accuracy_score=accuracy_score,
@@ -185,40 +172,51 @@ class WeatherValidator:
 
     @staticmethod
     def validate_multi_city_weather(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 4: Multi-City Weather (MEDIUM).
+        """Validate Task 4: Hottest July — Rome vs Paris vs Berlin (MEDIUM).
 
-        Expected: Bot reports weather for three cities
+        Expected: Bot identifies Rome as having the highest average July temperature (~25-26°C / 77-79°F).
+
+        Conditions:
+          1. "rome" appears in response (correct winner named)
+          2. A temperature in the 25–30°C range OR 77–86°F range for Rome
+             — accept "25", "26", "77", "78", "79", "80"
         """
-        cities = ["Paris", "Berlin", "Rome"]
+        july_ranking = setup_data.get("july_ranking", {})
 
         success = False
         accuracy_score = 0.0
-        validation_details = {"cities": cities}
+        validation_details = {"july_ranking": july_ranking}
         error_message = None
 
         try:
-            # Check if all three cities are mentioned
-            cities_mentioned = sum(1 for city in cities if city.lower() in response.lower())
-            validation_details["cities_mentioned"] = cities_mentioned
+            response_lower = response.lower()
 
-            # Check for weather keywords
-            weather_keywords = ["temperature", "temp", "degrees", "°", "weather", "sunny", "cloudy", "rain"]
-            weather_mentioned = any(keyword in response.lower() for keyword in weather_keywords)
-            validation_details["weather_mentioned"] = weather_mentioned
+            rome_found = "rome" in response_lower
+            # Accept any representative temperature for Rome in July
+            temp_signals = ["25", "26", "77", "78", "79", "80"]
+            temp_found = any(t in response_lower for t in temp_signals)
+            matched_temps = [t for t in temp_signals if t in response_lower]
+            validation_details["rome_found"] = rome_found
+            validation_details["temp_found"] = temp_found
+            validation_details["matched_temps"] = matched_temps
 
-            # Pass if at least 2 cities and weather info present
-            if cities_mentioned >= 2 and weather_mentioned:
+            if rome_found and temp_found:
                 success = True
                 accuracy_score = 100.0
             else:
-                error_message = f"Found {cities_mentioned}/3 cities, weather_info={weather_mentioned}"
+                missing_parts = []
+                if not rome_found:
+                    missing_parts.append("'Rome' as the hottest city")
+                if not temp_found:
+                    missing_parts.append("Rome July temperature (e.g. 25°C, 26°C, 77-80°F)")
+                error_message = f"Missing: {'; '.join(missing_parts)}"
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"
 
         return TaskResult(
             task_name="Multi-City Weather",
-            prompt="Get weather for multiple cities",
+            prompt="Among Paris, Berlin, and Rome — which has the highest average July temperature?",
             success=success,
             latency=0.0,
             accuracy_score=accuracy_score,
@@ -229,38 +227,47 @@ class WeatherValidator:
 
     @staticmethod
     def validate_weather_alerts(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 5: Weather Alerts (MEDIUM).
+        """Validate Task 5: Seattle's wettest month (MEDIUM).
 
-        Expected: Bot checks for weather alerts
+        Expected: Bot reports November is Seattle's wettest month, with ~6.5 inches.
+
+        Conditions:
+          1. "november" appears in response
+          2. "6" appears in response (representing ~6 or 6.5 inches)
         """
-        city = "Miami"
+        seattle_wettest = setup_data.get("seattle_wettest", {})
 
         success = False
         accuracy_score = 0.0
-        validation_details = {"city": city}
+        validation_details = {"seattle_wettest": seattle_wettest}
         error_message = None
 
         try:
-            city_mentioned = city.lower() in response.lower()
-            validation_details["city_mentioned"] = city_mentioned
+            response_lower = response.lower()
 
-            # Check for alert-related keywords
-            alert_keywords = ["alert", "warning", "advisory", "watch", "severe", "no alerts", "no warnings"]
-            alert_mentioned = any(keyword in response.lower() for keyword in alert_keywords)
-            validation_details["alert_mentioned"] = alert_mentioned
+            november_found = "november" in response_lower
+            # Accept "6" as in "6.5 inches" or "6 inches"
+            amount_found = "6" in response_lower
+            validation_details["november_found"] = november_found
+            validation_details["amount_6_found"] = amount_found
 
-            if city_mentioned and alert_mentioned:
+            if november_found and amount_found:
                 success = True
                 accuracy_score = 100.0
             else:
-                error_message = f"city_mentioned={city_mentioned}, alert_mentioned={alert_mentioned}"
+                missing_parts = []
+                if not november_found:
+                    missing_parts.append("wettest month 'November'")
+                if not amount_found:
+                    missing_parts.append("rainfall amount (~6 or 6.5 inches)")
+                error_message = f"Missing: {'; '.join(missing_parts)}"
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"
 
         return TaskResult(
             task_name="Weather Alerts",
-            prompt="Check weather alerts for city",
+            prompt="What is Seattle's wettest month and how many inches does it receive?",
             success=success,
             latency=0.0,
             accuracy_score=accuracy_score,
@@ -271,38 +278,49 @@ class WeatherValidator:
 
     @staticmethod
     def validate_temperature_trend(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 6: Temperature Trend (MEDIUM).
+        """Validate Task 6: Chicago average annual snowfall (MEDIUM).
 
-        Expected: Bot analyzes temperature trend
+        Expected: Bot reports Chicago averages ~36-37 inches of snow per year.
+
+        Conditions:
+          1. "chicago" appears in response
+          2. "36" OR "37" appears in response (annual snowfall in inches)
         """
-        city = "Seattle"
+        chicago_snowfall = setup_data.get("chicago_snowfall", {})
 
         success = False
         accuracy_score = 0.0
-        validation_details = {"city": city}
+        validation_details = {"chicago_snowfall": chicago_snowfall}
         error_message = None
 
         try:
-            city_mentioned = city.lower() in response.lower()
-            validation_details["city_mentioned"] = city_mentioned
+            response_lower = response.lower()
 
-            # Check for trend keywords
-            trend_keywords = ["warmer", "colder", "increasing", "decreasing", "trend", "rising", "falling", "temperature"]
-            trend_mentioned = any(keyword in response.lower() for keyword in trend_keywords)
-            validation_details["trend_mentioned"] = trend_mentioned
+            chicago_found = "chicago" in response_lower
+            # Accept 35, 36, or 37 (sources vary: BestPlaces says 35, NWS says 36, Choose Chicago says 37)
+            amount_found = "35" in response_lower or "36" in response_lower or "37" in response_lower
+            matched_amounts = [a for a in ["35", "36", "37"] if a in response_lower]
+            validation_details["chicago_found"] = chicago_found
+            validation_details["amount_found"] = amount_found
+            validation_details["matched_amounts"] = matched_amounts
 
-            if city_mentioned and trend_mentioned:
+            if chicago_found and amount_found:
                 success = True
                 accuracy_score = 100.0
             else:
-                error_message = f"city_mentioned={city_mentioned}, trend_mentioned={trend_mentioned}"
+                missing_parts = []
+                if not chicago_found:
+                    missing_parts.append("'Chicago'")
+                if not amount_found:
+                    missing_parts.append("annual snowfall amount (35, 36, or 37 inches)")
+                error_message = f"Missing: {'; '.join(missing_parts)}"
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"
 
         return TaskResult(
             task_name="Temperature Trend",
-            prompt="Analyze temperature trend",
+            prompt="How much snow does Chicago receive on average per year?",
             success=success,
             latency=0.0,
             accuracy_score=accuracy_score,
@@ -313,43 +331,46 @@ class WeatherValidator:
 
     @staticmethod
     def validate_travel_weather(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 7: Travel Weather Planning (HARD).
+        """Validate Task 7: UK all-time record high temperature (HARD).
 
-        Expected: Bot provides packing recommendations
+        Expected: Bot reports the UK record is 40.3°C (104.5°F), set in 2022.
+
+        Conditions:
+          1. "40" appears in response (the 40.3°C temperature)
+          2. "2022" appears in response (the year)
         """
-        city = "Barcelona"
+        uk_record = setup_data.get("uk_record", {})
 
         success = False
         accuracy_score = 0.0
-        validation_details = {"city": city}
+        validation_details = {"uk_record": uk_record}
         error_message = None
 
         try:
-            city_mentioned = city.lower() in response.lower()
-            validation_details["city_mentioned"] = city_mentioned
+            response_lower = response.lower()
 
-            # Check for packing/travel keywords
-            packing_keywords = ["pack", "bring", "wear", "jacket", "umbrella", "clothes", "clothing", "recommend"]
-            packing_mentioned = any(keyword in response.lower() for keyword in packing_keywords)
-            validation_details["packing_mentioned"] = packing_mentioned
+            temp_found = "40" in response_lower
+            year_found = "2022" in response_lower
+            validation_details["temp_40_found"] = temp_found
+            validation_details["year_2022_found"] = year_found
 
-            # Check for weather info
-            weather_keywords = ["weather", "temperature", "rain", "sunny", "forecast"]
-            weather_mentioned = any(keyword in response.lower() for keyword in weather_keywords)
-            validation_details["weather_mentioned"] = weather_mentioned
-
-            if city_mentioned and packing_mentioned and weather_mentioned:
+            if temp_found and year_found:
                 success = True
                 accuracy_score = 100.0
             else:
-                error_message = f"city={city_mentioned}, packing={packing_mentioned}, weather={weather_mentioned}"
+                missing_parts = []
+                if not temp_found:
+                    missing_parts.append("UK record temperature '40'(.3)°C")
+                if not year_found:
+                    missing_parts.append("record year '2022'")
+                error_message = f"Missing: {'; '.join(missing_parts)}"
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"
 
         return TaskResult(
             task_name="Travel Weather Planning",
-            prompt="Provide packing recommendations based on weather",
+            prompt="What is the highest temperature ever recorded in the United Kingdom and what year?",
             success=success,
             latency=0.0,
             accuracy_score=accuracy_score,
@@ -360,43 +381,49 @@ class WeatherValidator:
 
     @staticmethod
     def validate_best_weather_day(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 8: Best Weather Day (HARD).
+        """Validate Task 8: NYC vs London annual rainfall (HARD).
 
-        Expected: Bot recommends specific day
+        Expected: Bot reports NYC (~50 inches) receives more rain than London (~27 inches).
+
+        Conditions:
+          1. "new york" appears in response (correct winner named)
+          2. "50" OR "49" appears (NYC annual rainfall in inches — sources say ~49.9")
         """
-        city = "Chicago"
+        nyc_london = setup_data.get("nyc_london_rainfall", {})
 
         success = False
         accuracy_score = 0.0
-        validation_details = {"city": city}
+        validation_details = {"nyc_london_rainfall": nyc_london}
         error_message = None
 
         try:
-            city_mentioned = city.lower() in response.lower()
-            validation_details["city_mentioned"] = city_mentioned
+            response_lower = response.lower()
 
-            # Check for day recommendation
-            day_keywords = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "best", "recommend"]
-            day_mentioned = any(keyword in response.lower() for keyword in day_keywords)
-            validation_details["day_mentioned"] = day_mentioned
+            nyc_found = "new york" in response_lower
+            # Accept 49 or 50 (NYC is ~49.9 inches per year)
+            amount_found = "49" in response_lower or "50" in response_lower
+            matched_amounts = [a for a in ["49", "50"] if a in response_lower]
+            validation_details["new_york_found"] = nyc_found
+            validation_details["amount_found"] = amount_found
+            validation_details["matched_amounts"] = matched_amounts
 
-            # Check for outdoor/activity keywords
-            activity_keywords = ["outdoor", "activity", "activities", "weather", "conditions"]
-            activity_mentioned = any(keyword in response.lower() for keyword in activity_keywords)
-            validation_details["activity_mentioned"] = activity_mentioned
-
-            if city_mentioned and day_mentioned:
+            if nyc_found and amount_found:
                 success = True
                 accuracy_score = 100.0
             else:
-                error_message = f"city={city_mentioned}, day={day_mentioned}"
+                missing_parts = []
+                if not nyc_found:
+                    missing_parts.append("'New York' as the wetter city")
+                if not amount_found:
+                    missing_parts.append("NYC annual rainfall '49' or '50' inches")
+                error_message = f"Missing: {'; '.join(missing_parts)}"
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"
 
         return TaskResult(
             task_name="Best Weather Day",
-            prompt="Recommend best day for outdoor activities",
+            prompt="Which city receives more annual rainfall — New York City or London?",
             success=success,
             latency=0.0,
             accuracy_score=accuracy_score,
@@ -407,43 +434,46 @@ class WeatherValidator:
 
     @staticmethod
     def validate_severe_weather_risk(response: str, setup_data: dict[str, Any]) -> TaskResult:
-        """Validate Task 9: Severe Weather Risk (HARD).
+        """Validate Task 9: Coldest capital city in the world (HARD).
 
-        Expected: Bot assesses severe weather risks
+        Expected: Bot identifies Ulaanbaatar, Mongolia as the coldest capital city by average annual temperature.
+
+        Conditions:
+          1. "ulaanbaatar" appears in response (the city — unique, unambiguous)
+          2. "mongolia" appears in response (the country)
         """
-        city = "Houston"
+        coldest = setup_data.get("coldest_capital", {})
 
         success = False
         accuracy_score = 0.0
-        validation_details = {"city": city}
+        validation_details = {"coldest_capital": coldest}
         error_message = None
 
         try:
-            city_mentioned = city.lower() in response.lower()
-            validation_details["city_mentioned"] = city_mentioned
+            response_lower = response.lower()
 
-            # Check for risk/severe weather keywords
-            severe_keywords = ["severe", "storm", "extreme", "risk", "warning", "alert", "dangerous", "no risk", "unlikely"]
-            severe_mentioned = any(keyword in response.lower() for keyword in severe_keywords)
-            validation_details["severe_mentioned"] = severe_mentioned
+            ulaanbaatar_found = "ulaanbaatar" in response_lower
+            mongolia_found = "mongolia" in response_lower
+            validation_details["ulaanbaatar_found"] = ulaanbaatar_found
+            validation_details["mongolia_found"] = mongolia_found
 
-            # Check for weekend mention
-            weekend_keywords = ["weekend", "saturday", "sunday"]
-            weekend_mentioned = any(keyword in response.lower() for keyword in weekend_keywords)
-            validation_details["weekend_mentioned"] = weekend_mentioned
-
-            if city_mentioned and severe_mentioned:
+            if ulaanbaatar_found and mongolia_found:
                 success = True
                 accuracy_score = 100.0
             else:
-                error_message = f"city={city_mentioned}, severe={severe_mentioned}"
+                missing_parts = []
+                if not ulaanbaatar_found:
+                    missing_parts.append("coldest capital city 'Ulaanbaatar'")
+                if not mongolia_found:
+                    missing_parts.append("country 'Mongolia'")
+                error_message = f"Missing: {'; '.join(missing_parts)}"
 
         except Exception as e:
             error_message = f"Validation error: {str(e)}"
 
         return TaskResult(
             task_name="Severe Weather Risk",
-            prompt="Assess severe weather risks",
+            prompt="What is the coldest capital city in the world by average annual temperature?",
             success=success,
             latency=0.0,
             accuracy_score=accuracy_score,

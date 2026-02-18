@@ -1,23 +1,23 @@
 """Weather benchmark scenario.
 
-Tasks (9):
+Tasks (9) — all pinned to historical/climate ground-truth facts:
     Easy:
-       - Task 1 (Current Weather): What's the current weather in San Francisco?
-       - Task 2 (Weather Forecast): Get the weather forecast for New York for the next 3 days
-       - Task 3 (Weather Comparison): Compare current weather in London vs Tokyo — which is warmer?
+       - Task 1 (Record High): SF all-time record high temp — 106°F, set in 2017
+       - Task 2 (Rainfall Comparison): Miami vs Seattle annual rainfall — Miami wins (~62" vs ~39")
+       - Task 3 (City Comparison): London vs Tokyo average January temp — Tokyo is warmer
 
     Medium:
-       - Task 4 (Multi-City Weather): Tell me the current weather in Paris, Berlin, and Rome
-       - Task 5 (Weather Alerts): Are there any weather alerts or warnings for Miami?
-       - Task 6 (Temperature Trend): What's the temperature trend for Seattle over the next week?
+       - Task 4 (Multi-City Ranking): Paris/Berlin/Rome — Rome has hottest average July temp (~25-26°C)
+       - Task 5 (Monthly Extreme): Seattle's wettest month — November, ~6.5 inches
+       - Task 6 (Snowfall Fact): Chicago average annual snowfall — ~36-37 inches
 
     Hard:
-       - Task 7 (Travel Weather Planning): I'm planning a trip to Barcelona next week — what should I pack?
-       - Task 8 (Best Weather Day): Which of the next 5 days in Chicago is best for outdoor activities?
-       - Task 9 (Severe Weather Risk): Is there any risk of severe weather in Houston this weekend?
+       - Task 7 (National Record): UK all-time record high temperature — 40.3°C, July 2022
+       - Task 8 (Rainfall Comparison): NYC vs London annual rainfall — NYC wetter (~50" vs ~27")
+       - Task 9 (Global Extreme): Coldest capital city by avg annual temp — Ulaanbaatar, Mongolia
 
 Setup:
-    No special setup required. Tasks use real-time weather data.
+    No special setup required. Tasks use weather skill + web search for historical/climate facts.
 
 Required Skills:
     steipete/weather
@@ -53,7 +53,7 @@ class WeatherScenario(ScenarioBase):
         """
         super().__init__(
             name="Weather",
-            description="Tests agent's ability to retrieve and compare weather information",
+            description="Tests agent's ability to retrieve historical and climate facts using the weather skill",
             required_skills=["steipete/weather"],
         )
 
@@ -67,111 +67,138 @@ class WeatherScenario(ScenarioBase):
     def _define_tasks(self) -> None:
         """Define the 9 Weather tasks with progressive complexity."""
 
-        # Task 1: Current Weather
+        # Task 1: SF All-Time Record High
         self.add_task(
             BenchmarkTask(
                 name="Current Weather",
-                prompt="What's the current weather in San Francisco?",
-                expected_output_description="Bot reports current weather conditions for San Francisco",
+                prompt=(
+                    "What is San Francisco's all-time record high temperature, "
+                    "and what year was it set?"
+                ),
+                expected_output_description="Bot reports SF all-time record high is 106°F set in 2017",
                 validation_fn=self.validator.validate_current_weather,
                 timeout=45.0,
-                metadata={"difficulty": "easy", "category": "weather_current"},
+                metadata={"difficulty": "easy", "category": "weather_record"},
             )
         )
 
-        # Task 2: Weather Forecast
+        # Task 2: Miami vs Seattle Annual Rainfall
         self.add_task(
             BenchmarkTask(
                 name="Weather Forecast",
-                prompt="Can you get me the weather forecast for New York for the next 3 days?",
-                expected_output_description="Bot provides multi-day forecast for New York",
+                prompt=(
+                    "Which city gets more annual rainfall — Miami or Seattle? "
+                    "How much does each city receive per year in inches?"
+                ),
+                expected_output_description="Bot reports Miami gets ~62 inches vs Seattle ~39 inches, Miami wins",
                 validation_fn=self.validator.validate_weather_forecast,
                 timeout=45.0,
-                metadata={"difficulty": "easy", "category": "weather_forecast"},
+                metadata={"difficulty": "easy", "category": "weather_comparison"},
             )
         )
 
-        # Task 3: Weather Comparison
+        # Task 3: London vs Tokyo January Temperature
         self.add_task(
             BenchmarkTask(
                 name="Weather Comparison",
-                prompt="Compare the current weather in London versus Tokyo. Which city is warmer?",
-                expected_output_description="Bot compares weather between London and Tokyo",
+                prompt=(
+                    "Compare the average January temperatures in London and Tokyo. "
+                    "Which city is warmer in January, and what are their average January temperatures?"
+                ),
+                expected_output_description="Bot reports Tokyo (~6°C/43°F) is warmer than London (near freezing) in January",
                 validation_fn=self.validator.validate_weather_comparison,
                 timeout=60.0,
                 metadata={"difficulty": "easy", "category": "weather_comparison"},
             )
         )
 
-        # Task 4: Multi-City Weather
+        # Task 4: Hottest July — Rome vs Paris vs Berlin
         self.add_task(
             BenchmarkTask(
                 name="Multi-City Weather",
-                prompt="Tell me the current weather in Paris, Berlin, and Rome.",
-                expected_output_description="Bot reports weather for three European cities",
+                prompt=(
+                    "Among Paris, Berlin, and Rome, which city has the highest average July temperature? "
+                    "What is that city's average July temperature?"
+                ),
+                expected_output_description="Bot identifies Rome as hottest in July (~25-26°C / 77-79°F)",
                 validation_fn=self.validator.validate_multi_city_weather,
                 timeout=60.0,
-                metadata={"difficulty": "medium", "category": "weather_multi_city"},
+                metadata={"difficulty": "medium", "category": "weather_ranking"},
             )
         )
 
-        # Task 5: Weather Alerts
+        # Task 5: Seattle Wettest Month
         self.add_task(
             BenchmarkTask(
                 name="Weather Alerts",
-                prompt="Are there any weather alerts or warnings for Miami?",
-                expected_output_description="Bot checks for weather alerts in Miami",
+                prompt=(
+                    "What is Seattle's wettest month of the year, "
+                    "and how many inches of rain does it typically receive that month?"
+                ),
+                expected_output_description="Bot identifies November as Seattle's wettest month with ~6.5 inches",
                 validation_fn=self.validator.validate_weather_alerts,
                 timeout=45.0,
-                metadata={"difficulty": "medium", "category": "weather_alerts"},
+                metadata={"difficulty": "medium", "category": "weather_monthly"},
             )
         )
 
-        # Task 6: Temperature Trend
+        # Task 6: Chicago Annual Snowfall
         self.add_task(
             BenchmarkTask(
                 name="Temperature Trend",
-                prompt="What's the temperature trend for Seattle over the next week? Is it getting warmer or colder?",
-                expected_output_description="Bot analyzes temperature trend for Seattle",
+                prompt=(
+                    "How much snow does Chicago receive on average per year? "
+                    "Give me the average annual snowfall in inches."
+                ),
+                expected_output_description="Bot reports Chicago averages ~36-37 inches of snow per year",
                 validation_fn=self.validator.validate_temperature_trend,
                 timeout=60.0,
-                metadata={"difficulty": "medium", "category": "weather_trend"},
+                metadata={"difficulty": "medium", "category": "weather_snowfall"},
             )
         )
 
-        # Task 7: Travel Weather Planning
+        # Task 7: UK All-Time Record High
         self.add_task(
             BenchmarkTask(
                 name="Travel Weather Planning",
-                prompt="I'm planning a trip to Barcelona next week. What should I pack based on the weather forecast?",
-                expected_output_description="Bot provides packing recommendations based on Barcelona weather",
+                prompt=(
+                    "What is the highest temperature ever recorded in the United Kingdom, "
+                    "and what year did it occur?"
+                ),
+                expected_output_description="Bot reports UK all-time record is 40.3°C (104.5°F) set in 2022",
                 validation_fn=self.validator.validate_travel_weather,
                 timeout=75.0,
-                metadata={"difficulty": "hard", "category": "weather_travel"},
+                metadata={"difficulty": "hard", "category": "weather_record"},
             )
         )
 
-        # Task 8: Best Weather Day
+        # Task 8: NYC vs London Annual Rainfall
         self.add_task(
             BenchmarkTask(
                 name="Best Weather Day",
-                prompt="Looking at the next 5 days in Chicago, which day would be best for outdoor activities?",
-                expected_output_description="Bot recommends best day for outdoor activities in Chicago",
+                prompt=(
+                    "Which city receives more annual rainfall — New York City or London? "
+                    "How many inches does each city get per year?"
+                ),
+                expected_output_description="Bot reports NYC (~50 inches) is wetter than London (~27 inches)",
                 validation_fn=self.validator.validate_best_weather_day,
                 timeout=75.0,
-                metadata={"difficulty": "hard", "category": "weather_recommendation"},
+                metadata={"difficulty": "hard", "category": "weather_comparison"},
             )
         )
 
-        # Task 9: Severe Weather Risk
+        # Task 9: Coldest Capital City
         self.add_task(
             BenchmarkTask(
                 name="Severe Weather Risk",
-                prompt="Is there any risk of severe weather like storms or extreme temperatures in Houston this weekend?",
-                expected_output_description="Bot assesses severe weather risks for Houston",
+                prompt=(
+                    "What is the coldest capital city in the world by average annual temperature? "
+                    "What country is it in?"
+                ),
+                expected_output_description="Bot identifies Ulaanbaatar, Mongolia as the coldest capital city",
                 validation_fn=self.validator.validate_severe_weather_risk,
                 timeout=75.0,
-                metadata={"difficulty": "hard", "category": "weather_severe"},
+                metadata={"difficulty": "hard", "category": "weather_extreme"},
             )
         )
 
@@ -201,18 +228,60 @@ class WeatherScenario(ScenarioBase):
         try:
             logger.info("Setting up Weather benchmark...")
 
-            # Store expected data for validation
-            # Note: Each validator uses different keys from this shared dict
+            # Store expected data for validation — all historical ground truths
             self.setup_data = {
-                # Task 1: Current Weather - uses "city"
-                "city": "San Francisco",
-                # Task 2: Weather Forecast - uses "city" (different city!) and "forecast_days"
-                # We need to set city for forecast separately, so Task 2 reads from forecast_city
-                "forecast_city": "New York",
-                "forecast_days": 3,
-                # Task 3: Weather Comparison - uses "city1" and "city2"
-                "city1": "London",
-                "city2": "Tokyo",
+                # Task 1: SF all-time record high
+                "sf_record": {
+                    "temperature_f": "106",
+                    "year": "2017",
+                    "city": "San Francisco",
+                },
+                # Task 2: Miami vs Seattle annual rainfall
+                "rainfall_comparison": {
+                    "winner": "Miami",
+                    "miami_inches": "62",   # ~61.7 inches
+                    "seattle_inches": "39",
+                },
+                # Task 3: London vs Tokyo January temperature
+                "january_comparison": {
+                    "warmer_city": "Tokyo",
+                    "tokyo_jan_c": "6",     # ~6°C average
+                    "london_jan_c": "4",    # ~4°C average
+                },
+                # Task 4: Hottest July — Rome
+                "july_ranking": {
+                    "hottest_city": "Rome",
+                    "rome_july_c": "25",    # ~25-26°C average
+                },
+                # Task 5: Seattle wettest month
+                "seattle_wettest": {
+                    "month": "November",
+                    "inches": "6.5",
+                },
+                # Task 6: Chicago annual snowfall
+                "chicago_snowfall": {
+                    "inches_low": "36",
+                    "inches_high": "37",
+                    "city": "Chicago",
+                },
+                # Task 7: UK all-time record high
+                "uk_record": {
+                    "temperature_c": "40.3",
+                    "year": "2022",
+                    "location": "Coningsby",
+                },
+                # Task 8: NYC vs London annual rainfall
+                "nyc_london_rainfall": {
+                    "winner": "New York City",
+                    "nyc_inches": "50",    # ~49.9 inches
+                    "london_inches": "27", # ~27.2 inches
+                },
+                # Task 9: Coldest capital city
+                "coldest_capital": {
+                    "city": "Ulaanbaatar",
+                    "country": "Mongolia",
+                    "avg_temp_c": "-0.8",
+                },
             }
 
             logger.info("Setup complete - validation criteria configured")

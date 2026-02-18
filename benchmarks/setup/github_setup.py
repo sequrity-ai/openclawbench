@@ -30,6 +30,8 @@ class GitHubSetup:
         self.seeded_pr_number: int | None = None  # Track seeded PR for cleanup
         self.seeded_release_id: int | None = None  # Track seeded release for cleanup
         self.seeded_tag: str | None = None  # Track seeded tag for cleanup
+        self.seeded_issue_numbers: list[int] = []  # Track seed issues for cleanup
+        self.seeded_label_name: str | None = None  # Track seed label for cleanup
 
     def _make_request(
         self, method: str, endpoint: str, json_data: dict[str, Any] | None = None, params: dict[str, Any] | None = None
@@ -333,6 +335,58 @@ class GitHubSetup:
         except requests.HTTPError as e:
             logger.warning(f"Failed to create release: {e}")
 
+        # --- Step 5: Create benchmark-seed label ---
+        try:
+            self._make_request("POST", f"repos/{repo_owner}/{repo_name}/labels", json_data={
+                "name": "benchmark-seed",
+                "color": "0075ca",
+                "description": "Seeded by benchmark setup for label listing task",
+            })
+            self.seeded_label_name = "benchmark-seed"
+            seed_info["seeded_label"] = self.seeded_label_name
+            logger.info("Created label 'benchmark-seed'")
+        except requests.HTTPError as e:
+            # Label may already exist from a previous run — that's fine
+            logger.warning(f"Failed to create benchmark-seed label (may already exist): {e}")
+            self.seeded_label_name = "benchmark-seed"
+            seed_info["seeded_label"] = self.seeded_label_name
+
+        # --- Step 6: Seed 3 open issues for T2 (list issues) ---
+        seed_issues = [
+            {
+                "title": "[BENCHMARK SEED] Bug: fetchData returns null on timeout",
+                "body": "When the network request times out, fetchData returns null instead of throwing an error.",
+                "labels": ["benchmark-seed"],
+            },
+            {
+                "title": "[BENCHMARK SEED] Feature: add retry logic to processItems",
+                "body": "processItems should retry failed operations up to 3 times before giving up.",
+                "labels": ["benchmark-seed"],
+            },
+            {
+                "title": "[BENCHMARK SEED] Docs: update README with API examples",
+                "body": "The README is missing usage examples for the API client module.",
+                "labels": ["benchmark-seed"],
+            },
+        ]
+        for issue_data in seed_issues:
+            try:
+                resp = self._make_request(
+                    "POST",
+                    f"repos/{repo_owner}/{repo_name}/issues",
+                    json_data=issue_data,
+                )
+                issue_number = resp.get("number")
+                if issue_number:
+                    self.seeded_issue_numbers.append(issue_number)
+                    logger.info(f"Created seed issue #{issue_number}: {issue_data['title']}")
+                time.sleep(0.3)
+            except requests.HTTPError as e:
+                logger.warning(f"Failed to create seed issue '{issue_data['title']}': {e}")
+
+        seed_info["seeded_issue_numbers"] = self.seeded_issue_numbers
+        seed_info["seeded_issue_titles"] = [i["title"] for i in seed_issues]
+
         return seed_info
 
     def cleanup_seeded_data(self, repo_owner: str, repo_name: str) -> None:
@@ -416,6 +470,31 @@ class GitHubSetup:
                 logger.warning(f"Failed to delete {file_path}: {e}")
 
         self.seeded_files.clear()
+
+        # Close seeded issues (T2 seed)
+        for issue_number in self.seeded_issue_numbers:
+            try:
+                self._make_request(
+                    "PATCH",
+                    f"repos/{repo_owner}/{repo_name}/issues/{issue_number}",
+                    json_data={"state": "closed"},
+                )
+                logger.info(f"Closed seeded issue #{issue_number}")
+            except requests.HTTPError as e:
+                logger.warning(f"Failed to close seeded issue #{issue_number}: {e}")
+        self.seeded_issue_numbers.clear()
+
+        # Delete benchmark-seed label (T6 seed)
+        if self.seeded_label_name:
+            try:
+                self._make_request(
+                    "DELETE",
+                    f"repos/{repo_owner}/{repo_name}/labels/{self.seeded_label_name}",
+                )
+                logger.info(f"Deleted label '{self.seeded_label_name}'")
+            except requests.HTTPError as e:
+                logger.warning(f"Failed to delete label '{self.seeded_label_name}': {e}")
+            self.seeded_label_name = None
 
     def verify_api_access(self, repo_owner: str, repo_name: str) -> bool:
         """Verify GitHub API is accessible with the provided token.
