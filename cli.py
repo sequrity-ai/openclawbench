@@ -494,39 +494,46 @@ def run_benchmark_suite_sync(config: TelegramConfig, args) -> None:
 
 async def run_benchmark_sweep_async(config: TelegramConfig, args) -> None:
     """Run benchmark suite across all available models (sweep mode)."""
+    from benchmarks.remote_workspace import LocalModelManager, RemoteWorkspaceManager
+
     if config.local_mode:
-        print("ERROR: benchmark-sweep requires remote (Telegram) mode with SSH credentials.")
-        print("Cannot discover models in local mode.")
-        raise ValueError("benchmark-sweep not supported in local mode")
+        manager = LocalModelManager()
+        client_cls = LocalClient
+        bot_identifier: str | int = 0
+        print("Local sweep: using openclaw CLI directly")
+    else:
+        if not (config.bot_ssh_key_path or config.bot_ssh_password):
+            print("ERROR: benchmark-sweep requires SSH credentials.")
+            print("Set BOT_SSH_KEY_PATH or BOT_SSH_PASSWORD in your .env file.")
+            raise ValueError("benchmark-sweep requires SSH credentials for model discovery")
 
-    if not (config.bot_ssh_key_path or config.bot_ssh_password):
-        print("ERROR: benchmark-sweep requires SSH credentials.")
-        print("Set BOT_SSH_KEY_PATH or BOT_SSH_PASSWORD in your .env file.")
-        raise ValueError("benchmark-sweep requires SSH credentials for model discovery")
+        manager = RemoteWorkspaceManager(
+            host=config.bot_ssh_host,
+            port=config.bot_ssh_port,
+            user=config.bot_ssh_user,
+            key_path=config.bot_ssh_key_path if config.bot_ssh_key_path else None,
+            password=config.bot_ssh_password if config.bot_ssh_password else None,
+            workspace_path=config.bot_workspace_path,
+            key_passphrase=config.bot_ssh_key_passphrase if config.bot_ssh_key_passphrase else None,
+        )
+        client_cls = TelegramClient
+        bot_identifier = config.openclaw_bot_username
+        print(f"Remote sweep: SSH to {config.bot_ssh_user}@{config.bot_ssh_host}")
 
-    from benchmarks.remote_workspace import RemoteWorkspaceManager
-
-    remote_manager = RemoteWorkspaceManager(
-        host=config.bot_ssh_host,
-        port=config.bot_ssh_port,
-        user=config.bot_ssh_user,
-        key_path=config.bot_ssh_key_path if config.bot_ssh_key_path else None,
-        password=config.bot_ssh_password if config.bot_ssh_password else None,
-        workspace_path=config.bot_workspace_path,
-        key_passphrase=config.bot_ssh_key_passphrase if config.bot_ssh_key_passphrase else None,
-    )
-    print(f"Remote sweep: SSH to {config.bot_ssh_user}@{config.bot_ssh_host}")
+    # Keep a reference for scenarios that need remote_manager (file setup/validate)
+    remote_manager = manager if not config.local_mode else None
 
     # Discover available models
-    print("\nDiscovering available models on remote bot...")
+    mode_label = "local openclaw CLI" if config.local_mode else "remote bot"
+    print(f"\nDiscovering available models on {mode_label}...")
     try:
-        models = remote_manager.list_models()
+        models = manager.list_models()
     except Exception as e:
         print(f"ERROR: Failed to list models: {e}")
         raise
 
     if not models:
-        print("ERROR: No models found on remote bot.")
+        print(f"ERROR: No models found on {mode_label}.")
         raise RuntimeError("No models available for sweep")
 
     print(f"Found {len(models)} model(s):")
@@ -537,7 +544,7 @@ async def run_benchmark_sweep_async(config: TelegramConfig, args) -> None:
     scenarios, skipped = _build_scenarios(
         args,
         skip_missing=args.skip_missing,
-        local_mode=False,
+        local_mode=config.local_mode,
         remote_manager=remote_manager,
     )
 
@@ -571,9 +578,6 @@ async def run_benchmark_sweep_async(config: TelegramConfig, args) -> None:
 
     results_by_model: dict[str, list] = {}
 
-    client_cls = TelegramClient
-    bot_identifier = config.openclaw_bot_username
-
     for model_idx, model in enumerate(models, 1):
         print(f"\n{'#'*70}")
         print(f"MODEL [{model_idx}/{len(models)}]: {model}")
@@ -582,7 +586,7 @@ async def run_benchmark_sweep_async(config: TelegramConfig, args) -> None:
         # Switch bot to this model
         try:
             print(f"Switching bot to model: {model}")
-            output = remote_manager.switch_model(model)
+            output = manager.switch_model(model)
             print(f"Model switched successfully.")
             if output:
                 print(f"  {output}")

@@ -78,18 +78,29 @@ bench scenario="file" mode="telegram" output="" model="":
         exit 1
     fi
 
-# Run model sweep: discover all models on remote bot, run all scenarios for each
-# Usage: just sweep
-#        just sweep output=sweep_results.json
-sweep output="":
+# Run model sweep: discover all models, run all scenarios for each
+# Usage: just sweep                              (Telegram mode, default)
+#        just sweep output=sweep_results.json    (with JSON export)
+#        just sweep mode=local                   (Local mode - faster, no Telegram)
+#        just sweep mode=local output=out.json   (Local mode with JSON export)
+sweep output="" mode="telegram":
     #!/usr/bin/env bash
     mkdir -p logs
     log_file="logs/sweep_$(date +%Y%m%d_%H%M%S).log"
     echo "Logging to $log_file"
-    if [ -z "{{output}}" ]; then
-        uv run python cli.py --async benchmark-sweep 2>&1 | tee "$log_file"
+    if [ "{{mode}}" = "local" ]; then
+        local_flag="--local"
+    elif [ "{{mode}}" = "telegram" ]; then
+        local_flag=""
     else
-        uv run python cli.py --async benchmark-sweep --output {{output}} 2>&1 | tee "$log_file"
+        echo "Error: mode must be 'local' or 'telegram'"
+        echo "Usage: just sweep [mode=local|telegram] [output=file]"
+        exit 1
+    fi
+    if [ -z "{{output}}" ]; then
+        uv run python cli.py --async $local_flag benchmark-sweep 2>&1 | tee "$log_file"
+    else
+        uv run python cli.py --async $local_flag benchmark-sweep --output {{output}} 2>&1 | tee "$log_file"
     fi
 
 # Evaluate benchmark results from JSON file

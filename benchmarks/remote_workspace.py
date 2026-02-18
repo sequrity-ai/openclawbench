@@ -735,3 +735,130 @@ format = json
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
         self.disconnect()
+
+
+class LocalModelManager:
+    """Model manager for local mode - uses the openclaw CLI directly (no SSH)."""
+
+    def list_models(self) -> list[str]:
+        """List available models via local openclaw CLI.
+
+        Runs ``openclaw models list --json`` as a subprocess and parses the
+        output into a list of model identifiers (provider/model format).
+
+        Returns:
+            List of model identifiers, e.g. ["openai/gpt-4o", "anthropic/claude-opus-4-5"]
+
+        Raises:
+            RuntimeError: If the command fails or output cannot be parsed
+        """
+        import subprocess
+
+        logger.info("Listing available models via local openclaw CLI")
+        try:
+            result = subprocess.run(
+                ["openclaw", "models", "list", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except FileNotFoundError:
+            raise RuntimeError(
+                "openclaw CLI not found. Ensure 'openclaw' is installed and on PATH."
+            )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("Timed out waiting for 'openclaw models list --json'")
+
+        stdout = result.stdout.strip()
+        stderr = result.stderr.strip()
+
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Failed to list models (exit {result.returncode}): {(stdout + stderr).strip()}"
+            )
+
+        def _parse_item(item: object) -> str | None:
+            """Extract model key from a model list item."""
+            if isinstance(item, str):
+                return item
+            if isinstance(item, dict):
+                for k in ("key", "id", "model", "name"):
+                    if k in item:
+                        return str(item[k])
+            return None
+
+        try:
+            data = json.loads(stdout)
+            models: list[str] = []
+            items: list[object] = []
+            if isinstance(data, list):
+                items = data
+            elif isinstance(data, dict):
+                for val in data.values():
+                    if isinstance(val, list):
+                        items = val
+                        break
+            for item in items:
+                key = _parse_item(item)
+                if key:
+                    models.append(key)
+            logger.info(f"Found {len(models)} model(s): {models}")
+            return models
+        except json.JSONDecodeError:
+            # Fallback: try --plain output, one model per line
+            logger.warning("JSON parse failed, trying plain text fallback")
+            try:
+                result2 = subprocess.run(
+                    ["openclaw", "models", "list", "--plain"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                if result2.returncode == 0:
+                    lines = [
+                        ln.strip()
+                        for ln in result2.stdout.splitlines()
+                        if ln.strip() and "/" in ln
+                    ]
+                    logger.info(f"Found {len(lines)} model(s) (plain): {lines}")
+                    return lines
+            except Exception:
+                pass
+            raise RuntimeError(f"Could not parse model list output: {stdout[:200]}")
+
+    def switch_model(self, model: str) -> str:
+        """Switch the local openclaw agent's primary model.
+
+        Runs ``openclaw models set <model>`` as a subprocess.
+
+        Args:
+            model: Model identifier in provider/model format
+
+        Returns:
+            Output from the command (for confirmation logging)
+
+        Raises:
+            RuntimeError: If the command fails
+        """
+        import subprocess
+
+        logger.info(f"Switching local openclaw model to: {model}")
+        try:
+            result = subprocess.run(
+                ["openclaw", "models", "set", model],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except FileNotFoundError:
+            raise RuntimeError(
+                "openclaw CLI not found. Ensure 'openclaw' is installed and on PATH."
+            )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"Timed out waiting for 'openclaw models set {model}'")
+
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to switch model to {model!r}: {output}")
+        logger.info(f"Model switched to {model}: {output}")
+        return output
