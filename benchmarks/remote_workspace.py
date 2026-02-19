@@ -554,10 +554,17 @@ format = json
             # Run validation on downloaded files (pass empty string as bot_response since we validate files)
             validation_result = validation_fn("", local_setup_data)
 
-            logger.info(
-                f"Validation complete: success={validation_result.success}, "
-                f"accuracy={validation_result.accuracy_score:.1f}%"
-            )
+            if validation_result.success:
+                logger.info(
+                    f"Validation complete: success={validation_result.success}, "
+                    f"accuracy={validation_result.accuracy_score:.1f}%"
+                )
+            else:
+                logger.warning(
+                    f"Validation complete: success={validation_result.success}, "
+                    f"accuracy={validation_result.accuracy_score:.1f}% — "
+                    f"reason: {validation_result.error_message}"
+                )
 
             return validation_result
 

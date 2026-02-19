@@ -383,11 +383,15 @@ class WeatherValidator:
     def validate_best_weather_day(response: str, setup_data: dict[str, Any]) -> TaskResult:
         """Validate Task 8: NYC vs London annual rainfall (HARD).
 
-        Expected: Bot reports NYC (~50 inches) receives more rain than London (~27 inches).
+        Expected: Bot reports NYC receives more rain than London (~27 inches).
+        NYC figures vary by source and period:
+          - NOAA 1991-2020 normals: ~46.6 inches (Central Park)
+          - Older datasets: ~49-50 inches
+        Accept any figure in the 46-50 range.
 
         Conditions:
           1. "new york" appears in response (correct winner named)
-          2. "50" OR "49" appears (NYC annual rainfall in inches — sources say ~49.9")
+          2. Any of "46", "47", "48", "49", "50" appears (NYC annual rainfall)
         """
         nyc_london = setup_data.get("nyc_london_rainfall", {})
 
@@ -400,9 +404,10 @@ class WeatherValidator:
             response_lower = response.lower()
 
             nyc_found = "new york" in response_lower
-            # Accept 49 or 50 (NYC is ~49.9 inches per year)
-            amount_found = "49" in response_lower or "50" in response_lower
-            matched_amounts = [a for a in ["49", "50"] if a in response_lower]
+            # Accept 46-50 inches: NOAA 1991-2020 normals give ~46.6"; older sources say ~49.9-50"
+            accepted = ["46", "47", "48", "49", "50"]
+            amount_found = any(a in response_lower for a in accepted)
+            matched_amounts = [a for a in accepted if a in response_lower]
             validation_details["new_york_found"] = nyc_found
             validation_details["amount_found"] = amount_found
             validation_details["matched_amounts"] = matched_amounts
@@ -415,7 +420,7 @@ class WeatherValidator:
                 if not nyc_found:
                     missing_parts.append("'New York' as the wetter city")
                 if not amount_found:
-                    missing_parts.append("NYC annual rainfall '49' or '50' inches")
+                    missing_parts.append("NYC annual rainfall (46-50 inches)")
                 error_message = f"Missing: {'; '.join(missing_parts)}"
 
         except Exception as e:

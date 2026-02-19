@@ -2,6 +2,7 @@
 
 import base64
 import logging
+import time
 from email.mime.text import MIMEText
 from typing import Any
 
@@ -28,6 +29,7 @@ class GmailSetup:
         self.client_secret = client_secret
         self.refresh_token = refresh_token
         self.access_token: str | None = None
+        self.token_expiry: float = 0.0  # Unix timestamp when token expires
         self.test_email_ids: list[str] = []  # Track test emails for cleanup
 
     def _get_access_token(self) -> str:
@@ -39,7 +41,8 @@ class GmailSetup:
         Raises:
             requests.HTTPError: If token refresh fails
         """
-        if self.access_token:
+        # Re-fetch if no token or if token expires within the next 60 seconds
+        if self.access_token and time.time() < self.token_expiry - 60:
             return self.access_token
 
         # Request new access token using refresh token
@@ -57,7 +60,9 @@ class GmailSetup:
 
         token_data = response.json()
         self.access_token = token_data["access_token"]
-        logger.debug("Refreshed Gmail API access token")
+        expires_in = token_data.get("expires_in", 3600)
+        self.token_expiry = time.time() + expires_in
+        logger.debug(f"Refreshed Gmail API access token (expires in {expires_in}s)")
         return self.access_token
 
     def _make_request(
@@ -216,6 +221,49 @@ class GmailSetup:
         self.test_email_ids.clear()
         logger.info(f"Cleanup complete: deleted {deleted_count} test emails")
         return deleted_count
+
+    def list_labels(self) -> list[dict]:
+        """List all Gmail labels.
+
+        Returns:
+            List of label dicts with 'id' and 'name' fields
+        """
+        response = self._make_request("GET", "labels")
+        return response.get("labels", [])
+
+    def delete_label(self, label_id: str) -> None:
+        """Delete a Gmail label by ID.
+
+        Args:
+            label_id: Gmail label ID
+
+        Raises:
+            requests.HTTPError: If delete fails
+        """
+        url = f"{self.BASE_URL}/labels/{label_id}"
+        access_token = self._get_access_token()
+        headers = {"Authorization": f"Bearer {access_token}"}
+        response = requests.request("DELETE", url, headers=headers, timeout=30)
+        response.raise_for_status()
+        logger.info(f"Deleted label ID: {label_id}")
+
+    def delete_label_by_name(self, label_name: str) -> bool:
+        """Delete a Gmail label by name if it exists.
+
+        Args:
+            label_name: Display name of the label to delete
+
+        Returns:
+            True if label was found and deleted, False if it didn't exist
+        """
+        labels = self.list_labels()
+        for label in labels:
+            if label.get("name", "").lower() == label_name.lower():
+                self.delete_label(label["id"])
+                logger.info(f"Deleted label '{label_name}'")
+                return True
+        logger.debug(f"Label '{label_name}' not found — nothing to delete")
+        return False
 
     def verify_api_access(self) -> bool:
         """Verify Gmail API is accessible with the provided API key.

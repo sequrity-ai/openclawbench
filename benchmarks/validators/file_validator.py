@@ -346,8 +346,20 @@ class FileValidator:
                 if not isinstance(report_data, (list, dict)):
                     error_message = "Invalid JSON structure"
                 else:
-                    # Handle both list of products or dict with products key
-                    products_list = report_data if isinstance(report_data, list) else report_data.get("products", [])
+                    # Handle three formats:
+                    # 1. List of dicts: [{"product": "Laptop", "total_quantity": 15, ...}, ...]
+                    # 2. Dict with "products" key: {"products": [...]}
+                    # 3. Dict keyed by product name: {"Laptop": {"total_quantity": 15, ...}, ...}
+                    if isinstance(report_data, list):
+                        products_list = report_data
+                    elif "products" in report_data:
+                        products_list = report_data.get("products", [])
+                    else:
+                        # Dict-keyed format: convert to list-of-dicts
+                        products_list = [
+                            {"product": k, **v} if isinstance(v, dict) else {"product": k}
+                            for k, v in report_data.items()
+                        ]
 
                     matched_products = 0
                     mismatched_products = []
@@ -355,7 +367,7 @@ class FileValidator:
                     for expected_name, expected_values in expected_products.items():
                         found = False
                         for product in products_list:
-                            product_name = product.get("product", "")
+                            product_name = product.get("product", product.get("name", ""))
                             if product_name == expected_name:
                                 # Check quantities and revenue
                                 qty = product.get("total_quantity", 0)
@@ -521,8 +533,20 @@ class FileValidator:
 
                 validation_details["expected_departments"] = list(expected_depts.keys())
 
-                # Handle both list of departments or dict with departments key
-                depts_list = report_data if isinstance(report_data, list) else report_data.get("departments", [])
+                # Handle three formats:
+                # 1. List of dicts: [{"department": "Engineering", "employee_count": 2, ...}, ...]
+                # 2. Dict with "departments" key: {"departments": [...]}
+                # 3. Dict keyed by dept name: {"Engineering": {"employee_count": 2, ...}, ...}
+                if isinstance(report_data, list):
+                    depts_list = report_data
+                elif "departments" in report_data:
+                    depts_list = report_data.get("departments", [])
+                else:
+                    # Dict-keyed format: convert to list-of-dicts
+                    depts_list = [
+                        {"department": k, **v} if isinstance(v, dict) else {"department": k}
+                        for k, v in report_data.items()
+                    ]
 
                 matched_depts = 0
                 mismatched_depts = []

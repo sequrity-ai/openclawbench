@@ -164,12 +164,16 @@ class GmailScenario(ScenarioBase):
             )
         )
 
-        # Task 5: Search by Sender - Find emails from a specific address
+        # Task 5: Search by Sender - Find the seeded support email by subject
         self.add_task(
             BenchmarkTask(
                 name="Search by Sender",
-                prompt="Find emails from support@example.com",
-                expected_output_description="Bot finds and reports emails sent from support@example.com",
+                prompt=(
+                    "Search my Gmail inbox for the email with subject "
+                    "'[BENCHMARK TEST] Support Request'. "
+                    "Tell me who it appears to be from and what the subject line is."
+                ),
+                expected_output_description="Bot finds and reports the support request email subject",
                 validation_fn=self.validator.validate_search_by_sender,
                 timeout=60.0,
                 metadata={"difficulty": "medium", "category": "email_search"},
@@ -426,7 +430,7 @@ class GmailScenario(ScenarioBase):
             )
 
     def cleanup(self) -> bool:
-        """Clean up the Gmail scenario by deleting test emails.
+        """Clean up the Gmail scenario by deleting test emails and labels.
 
         Returns:
             True if cleanup succeeded
@@ -435,6 +439,17 @@ class GmailScenario(ScenarioBase):
             logger.info("Cleaning up Gmail test emails...")
             deleted_count = self.gmail_setup.cleanup_test_emails()
             logger.info(f"Cleaned up {deleted_count} test emails successfully")
+
+            # Delete the 'Important Projects' label created by Task 6 so the next
+            # run starts clean and the bot can create it fresh (not find it pre-existing)
+            label_name = self.setup_data.get("new_label_name", "Important Projects")
+            try:
+                deleted = self.gmail_setup.delete_label_by_name(label_name)
+                if deleted:
+                    logger.info(f"Deleted label '{label_name}' from prior run")
+            except Exception as e:
+                logger.warning(f"Could not delete label '{label_name}': {e}")
+
             return True
         except Exception as e:
             logger.error(f"Cleanup error: {e}")
