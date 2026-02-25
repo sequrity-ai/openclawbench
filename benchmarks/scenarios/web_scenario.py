@@ -79,7 +79,7 @@ class WebScenario(ScenarioBase):
                     "in the past 60 days. What product was launched and when?"
                 ),
                 expected_output_description="Bot searches for recent product launches and identifies the most recent one",
-                validation_fn=self.validator.validate_latest_product_launch,
+                validation_fn=self.validator.validate_recent_product_release,
                 timeout=45.0,
                 metadata={"difficulty": "easy", "category": "recent_release"},
             )
@@ -94,7 +94,7 @@ class WebScenario(ScenarioBase):
                     "Which company had the higher closing price? Give me the company name and both prices."
                 ),
                 expected_output_description="Bot searches for yesterday's closing prices and compares AAPL vs MSFT",
-                validation_fn=self.validator.validate_stock_comparison,
+                validation_fn=self.validator.validate_comparison_search,
                 timeout=60.0,
                 metadata={"difficulty": "easy", "category": "comparison"},
             )
@@ -109,7 +109,7 @@ class WebScenario(ScenarioBase):
                     "What is the story about? Give me a brief summary."
                 ),
                 expected_output_description="Bot searches for recent top tech news and provides summary",
-                validation_fn=self.validator.validate_top_tech_news,
+                validation_fn=self.validator.validate_current_events,
                 timeout=60.0,
                 metadata={"difficulty": "easy", "category": "current_events"},
             )
@@ -124,7 +124,7 @@ class WebScenario(ScenarioBase):
                     "What model was released, by which company, and when?"
                 ),
                 expected_output_description="Bot searches for recent AI model releases and identifies the most recent one",
-                validation_fn=self.validator.validate_recent_ai_model,
+                validation_fn=self.validator.validate_multi_query_search,
                 timeout=75.0,
                 metadata={"difficulty": "medium", "category": "ai_news"},
             )
@@ -139,7 +139,7 @@ class WebScenario(ScenarioBase):
                     "What company raised funding, how much did they raise, and when was it announced?"
                 ),
                 expected_output_description="Bot searches for recent tech funding rounds and identifies the largest one",
-                validation_fn=self.validator.validate_recent_funding,
+                validation_fn=self.validator.validate_domain_specific_search,
                 timeout=60.0,
                 metadata={"difficulty": "medium", "category": "funding_news"},
             )
@@ -154,7 +154,7 @@ class WebScenario(ScenarioBase):
                     "What was the conference name, where was it held, and what was a key announcement or outcome?"
                 ),
                 expected_output_description="Bot searches for recent major conferences and provides details",
-                validation_fn=self.validator.validate_recent_conference,
+                validation_fn=self.validator.validate_news_search,
                 timeout=60.0,
                 metadata={"difficulty": "medium", "category": "conference_news"},
             )
@@ -169,7 +169,7 @@ class WebScenario(ScenarioBase):
                     "List all 3 headlines."
                 ),
                 expected_output_description="Bot searches for current trending financial news and lists 3 headlines",
-                validation_fn=self.validator.validate_top_trending_news,
+                validation_fn=self.validator.validate_time_filtered_search,
                 timeout=90.0,
                 metadata={"difficulty": "hard", "category": "trending_news"},
             )
@@ -184,7 +184,7 @@ class WebScenario(ScenarioBase):
                     "When did it happen? Give me the company name and date."
                 ),
                 expected_output_description="Bot searches for recent IPOs and identifies the most recent one with date",
-                validation_fn=self.validator.validate_recent_ipo,
+                validation_fn=self.validator.validate_search_comparison,
                 timeout=90.0,
                 metadata={"difficulty": "hard", "category": "recent_events"},
             )
@@ -199,7 +199,7 @@ class WebScenario(ScenarioBase):
                     "What is the story about? Summarize it briefly."
                 ),
                 expected_output_description="Bot searches for recent viral tech news and provides summary",
-                validation_fn=self.validator.validate_viral_tech_news,
+                validation_fn=self.validator.validate_topic_analysis,
                 timeout=90.0,
                 metadata={"difficulty": "hard", "category": "trending_news"},
             )

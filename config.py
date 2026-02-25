@@ -206,6 +206,9 @@ class TelegramConfig(BaseSettings):
         return f"{self.telegram_api_base_url}/bot{self.telegram_bot_token}"
 
 
+Config = TelegramConfig
+
+
 def load_config() -> TelegramConfig:
     """Load configuration from environment variables and .env file."""
     return TelegramConfig()
