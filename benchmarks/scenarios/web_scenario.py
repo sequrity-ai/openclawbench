@@ -1,20 +1,23 @@
 """Web Search benchmark scenario.
 
+ALL TASKS are time-relative to prevent breakage when dates pass.
+Models MUST use web search - cannot rely on parametric knowledge.
+
 Tasks (9):
     Easy:
-       - Task 1 (Factual Web Search): When was Python created and who created it? (1991, Guido van Rossum)
-       - Task 2 (Comparison Research): Which had higher closing price on Feb 17, 2026 — AAPL or MSFT? (MSFT at $396.86)
-       - Task 3 (Current Events Research): BBC article on DeepSeek cost vs GPT-4 cost (~$6M vs $100M+)
+       - Task 1: Most recent major product launch in past 60 days
+       - Task 2: Yesterday's AAPL vs MSFT closing stock prices
+       - Task 3: Biggest tech news story from past 7 days
 
     Medium:
-       - Task 4 (Multi-Query Search): arXiv paper 2505.15917 author (Gidney) + BBC top story Jan 2, 2025 city (New Orleans)
-       - Task 5 (Domain-Specific Search): TechCrunch article — ElevenLabs Series C amount ($180M, Jan 2025)
-       - Task 6 (News Search): COP29 November 2024 — city held (Baku) + annual pledge ($300B)
+       - Task 4: Most recent major AI model/LLM release in past 90 days
+       - Task 5: Largest tech funding round in past 60 days
+       - Task 6: Most recent major tech conference in past 6 months
 
     Hard:
-       - Task 7 (Chained Lookup, 3-hop, Science): 2024 Nobel Physics winner (Hinton) → 2024 Nobel Chemistry winner (Baker) → Baker's university (University of Washington)
-       - Task 8 (Chained Lookup, 3-hop, Sports+Politics): Men's 100m WR holder (Bolt, 2009) → PM of Jamaica in 2009 (Golding)
-       - Task 9 (Chained Lookup, 4-hop, Film+Geography): Best Picture 2024 director (Nolan/Oppenheimer) → university (Christ's College Cambridge) → city (Cambridge) → founding year (1209)
+       - Task 7: Top 3 trending financial news headlines TODAY
+       - Task 8: Most recent IPO in last 30 days
+       - Task 9: Most viral tech news story in past 7 days
 
 Setup:
     No special setup required. Tasks use live web search.
@@ -67,149 +70,138 @@ class WebScenario(ScenarioBase):
     def _define_tasks(self) -> None:
         """Define the 9 Web Search tasks with progressive complexity."""
 
-        # Task 1: Factual Search - Simple fact-finding
+        # Task 1: Latest Major Product Launch - Time-relative
         self.add_task(
             BenchmarkTask(
-                name="Factual Web Search",
+                name="Latest Product Launch",
                 prompt=(
-                    "Search the web to find out when Python programming language was created "
-                    "and who created it. Tell me the year and the creator's name."
+                    "Search the web for the most recent major smartphone or tech product launch "
+                    "in the past 60 days. What product was launched and when?"
                 ),
-                expected_output_description="Bot reports Python was created in 1991 by Guido van Rossum",
-                validation_fn=self.validator.validate_factual_search,
+                expected_output_description="Bot searches for recent product launches and identifies the most recent one",
+                validation_fn=self.validator.validate_latest_product_launch,
                 timeout=45.0,
-                metadata={"difficulty": "easy", "category": "factual_search"},
+                metadata={"difficulty": "easy", "category": "recent_release"},
             )
         )
 
-        # Task 2: Stock Price Comparison - Verify ground-truth fact via web search
+        # Task 2: Stock Price Yesterday - Time-relative
         self.add_task(
             BenchmarkTask(
-                name="Comparison Research",
+                name="Stock Price Comparison",
                 prompt=(
-                    "Search the web for the closing stock prices of Apple (AAPL) and Microsoft (MSFT) "
-                    "on February 17, 2026. Which company had the higher closing price? "
-                    "Reply with just the company name."
+                    "Search the web for yesterday's closing stock prices of Apple (AAPL) and Microsoft (MSFT). "
+                    "Which company had the higher closing price? Give me the company name and both prices."
                 ),
-                expected_output_description="Bot names Microsoft as the company with the higher closing price on Feb 17, 2026",
-                validation_fn=self.validator.validate_comparison_search,
+                expected_output_description="Bot searches for yesterday's closing prices and compares AAPL vs MSFT",
+                validation_fn=self.validator.validate_stock_comparison,
                 timeout=60.0,
                 metadata={"difficulty": "easy", "category": "comparison"},
             )
         )
 
-        # Task 3: Current Events - Ground-truth BBC/DeepSeek article facts
+        # Task 3: Top Tech News Past Week - Time-relative
         self.add_task(
             BenchmarkTask(
-                name="Current Events Research",
+                name="Top Tech News",
                 prompt=(
-                    "Search for the BBC news article about DeepSeek from January 2025. "
-                    "According to BBC, how much did it cost to train DeepSeek, and how does "
-                    "that compare to what OpenAI spent on GPT-4?"
+                    "Search for the biggest tech news story from the past 7 days. "
+                    "What is the story about? Give me a brief summary."
                 ),
-                expected_output_description="Bot finds BBC article and reports DeepSeek cost ~$6 million vs GPT-4 cost over $100 million",
-                validation_fn=self.validator.validate_current_events,
+                expected_output_description="Bot searches for recent top tech news and provides summary",
+                validation_fn=self.validator.validate_top_tech_news,
                 timeout=60.0,
                 metadata={"difficulty": "easy", "category": "current_events"},
             )
         )
 
-        # Task 4: Multi-Query Search - Two unrelated ground-truth searches
+        # Task 4: Recent AI Model Release - Time-relative
         self.add_task(
             BenchmarkTask(
-                name="Multi-Query Search",
+                name="Recent AI Model Release",
                 prompt=(
-                    "Do two separate web searches and answer both questions: "
-                    "(1) Search arXiv for the paper with ID '2505.15917' — what is the author's last name? "
-                    "(2) Search BBC News for the top story on January 2, 2025 — what city was it about? "
-                    "Give me both answers."
+                    "Search for the most recent major AI model or LLM release in the past 90 days. "
+                    "What model was released, by which company, and when?"
                 ),
-                expected_output_description="Bot searches arXiv (finds 'Gidney') and BBC (finds 'New Orleans'), reports both answers",
-                validation_fn=self.validator.validate_multi_query_search,
+                expected_output_description="Bot searches for recent AI model releases and identifies the most recent one",
+                validation_fn=self.validator.validate_recent_ai_model,
                 timeout=75.0,
-                metadata={"difficulty": "medium", "category": "multi_query"},
+                metadata={"difficulty": "medium", "category": "ai_news"},
             )
         )
 
-        # Task 5: Domain-Specific Search - Search TechCrunch for ElevenLabs funding article
+        # Task 5: Recent Tech Funding Round - Time-relative
         self.add_task(
             BenchmarkTask(
-                name="Domain-Specific Search",
+                name="Recent Tech Funding",
                 prompt=(
-                    "Search techcrunch.com for the article about ElevenLabs raising a Series C "
-                    "funding round in January 2025. How much did they raise? Give me just the dollar amount."
+                    "Search for the largest tech company funding round announced in the past 60 days. "
+                    "What company raised funding, how much did they raise, and when was it announced?"
                 ),
-                expected_output_description="Bot finds TechCrunch article reporting ElevenLabs raised $180 million in Series C",
-                validation_fn=self.validator.validate_domain_specific_search,
+                expected_output_description="Bot searches for recent tech funding rounds and identifies the largest one",
+                validation_fn=self.validator.validate_recent_funding,
                 timeout=60.0,
-                metadata={"difficulty": "medium", "category": "domain_search"},
+                metadata={"difficulty": "medium", "category": "funding_news"},
             )
         )
 
-        # Task 6: News Search - COP29 ground-truth (city + annual pledge amount)
+        # Task 6: Recent Major Conference - Time-relative
         self.add_task(
             BenchmarkTask(
-                name="News Search",
+                name="Recent Major Conference",
                 prompt=(
-                    "Search the web for COP29, the UN climate conference held in November 2024. "
-                    "What city was it held in, and what annual climate finance amount did rich nations pledge? "
-                    "Give me the city and the dollar amount."
+                    "Search for the most recent major tech or industry conference held in the past 6 months. "
+                    "What was the conference name, where was it held, and what was a key announcement or outcome?"
                 ),
-                expected_output_description="Bot finds COP29 was held in Baku and rich nations pledged $300 billion per year",
-                validation_fn=self.validator.validate_news_search,
+                expected_output_description="Bot searches for recent major conferences and provides details",
+                validation_fn=self.validator.validate_recent_conference,
                 timeout=60.0,
-                metadata={"difficulty": "medium", "category": "news_search"},
+                metadata={"difficulty": "medium", "category": "conference_news"},
             )
         )
 
-        # Task 7: Chained Lookup (3-hop, Science) - Nobel Physics winner → Nobel Chemistry winner → Chemistry winner's university
+        # Task 7: Top Trending Financial News (requires current search)
         self.add_task(
             BenchmarkTask(
-                name="Time-Filtered Search",
+                name="Top Trending Financial News",
                 prompt=(
-                    "Search for who won the 2024 Nobel Prize in Physics. "
-                    "Then search for who won the 2024 Nobel Prize in Chemistry. "
-                    "Finally, find what university the Chemistry winner is affiliated with. "
-                    "Give me both winners' last names and the university."
+                    "Search for the top 3 trending financial news headlines today. "
+                    "List all 3 headlines."
                 ),
-                expected_output_description="Bot finds Hinton (Physics) and Baker (Chemistry), then finds Baker is at University of Washington",
-                validation_fn=self.validator.validate_time_filtered_search,
+                expected_output_description="Bot searches for current trending financial news and lists 3 headlines",
+                validation_fn=self.validator.validate_top_trending_news,
                 timeout=90.0,
-                metadata={"difficulty": "hard", "category": "chained_lookup"},
+                metadata={"difficulty": "hard", "category": "trending_news"},
             )
         )
 
-        # Task 8: Chained Lookup (3-hop, Sports+Politics) - 100m WR holder → year set → PM of their country that year
+        # Task 8: Recent IPO (requires current search)
         self.add_task(
             BenchmarkTask(
-                name="Search Comparison",
+                name="Recent IPO Search",
                 prompt=(
-                    "Search for who holds the men's 100m sprint world record and what year they set it. "
-                    "Then search for who was the Prime Minister of that athlete's country in the year the record was set. "
-                    "Give me the record holder's last name, the year, and the Prime Minister's last name."
+                    "Search for what company had an IPO or went public most recently in the last 30 days. "
+                    "When did it happen? Give me the company name and date."
                 ),
-                expected_output_description="Bot finds Usain Bolt set the record in 2009, then finds Bruce Golding was PM of Jamaica in 2009",
-                validation_fn=self.validator.validate_search_comparison,
+                expected_output_description="Bot searches for recent IPOs and identifies the most recent one with date",
+                validation_fn=self.validator.validate_recent_ipo,
                 timeout=90.0,
-                metadata={"difficulty": "hard", "category": "chained_lookup"},
+                metadata={"difficulty": "hard", "category": "recent_events"},
             )
         )
 
-        # Task 9: Chained Lookup (4-hop, Film+Geography) - Best Picture 2024 → director → university → founding year
+        # Task 9: Viral Tech News (requires current search)
         self.add_task(
             BenchmarkTask(
-                name="Topic Analysis",
+                name="Viral Tech News",
                 prompt=(
-                    "Search for which film won Best Picture at the 2024 Academy Awards and who directed it. "
-                    "Then search for what university that director attended. "
-                    "Then find what city that university is in. "
-                    "Finally, search for what year that university was founded. "
-                    "Give me the director's last name, the university, the city, and the founding year."
+                    "Search for the most viral tech news story in the past 7 days. "
+                    "What is the story about? Summarize it briefly."
                 ),
-                expected_output_description="Bot finds Nolan (Oppenheimer) → Christ's College Cambridge → Cambridge UK → founded 1209",
-                validation_fn=self.validator.validate_topic_analysis,
+                expected_output_description="Bot searches for recent viral tech news and provides summary",
+                validation_fn=self.validator.validate_viral_tech_news,
                 timeout=90.0,
-                metadata={"difficulty": "hard", "category": "chained_lookup"},
+                metadata={"difficulty": "hard", "category": "trending_news"},
             )
         )
 
@@ -219,11 +211,47 @@ class WebScenario(ScenarioBase):
         local_mode = self.remote_manager is None
         checks = check_skills(self.required_skills, local_mode=local_mode, remote_manager=self.remote_manager)
 
-        # Note: We don't verify Tavily API access directly since it's configured
-        # in the bot, not in the benchmark client
+        # CRITICAL: Check OpenAI API key (required for AI agent)
+        checks.append(self._check_openai_api_key())
+
+        # CRITICAL: Check Tavily API key is configured for validation
+        # Validators require Tavily API to fetch ground truth
+        import os
+        from config import Config
+
+        tavily_api_key = ""
+        try:
+            config = Config()
+            tavily_api_key = config.tavily_api_key
+        except Exception:
+            tavily_api_key = os.getenv("TAVILY_API_KEY", "")
+
+        if not tavily_api_key or tavily_api_key == "your_tavily_api_key_here":
+            checks.append(
+                HealthCheckResult(
+                    check_name="Tavily API Key (Benchmark)",
+                    status=CheckStatus.FAIL,
+                    message="TAVILY_API_KEY not configured in benchmark .env file",
+                    details={
+                        "error": "Web Search validators require Tavily API to fetch ground truth",
+                        "fix": "Get API key from https://tavily.com and set TAVILY_API_KEY in .env",
+                    },
+                )
+            )
+        else:
+            checks.append(
+                HealthCheckResult(
+                    check_name="Tavily API Key (Benchmark)",
+                    status=CheckStatus.PASS,
+                    message=f"Tavily API key configured ({tavily_api_key[:10]}...)",
+                    details={"validation_method": "tavily_api"},
+                )
+            )
+
+        # Note for bot configuration
         checks.append(
             HealthCheckResult(
-                check_name="Tavily API Note",
+                check_name="Tavily API Note (Bot)",
                 status=CheckStatus.PASS,
                 message="Ensure bot has Tavily API key configured (TAVILY_API_KEY in bot's .env)",
                 details={"required_skill": "tavily-search"},
@@ -243,10 +271,11 @@ class WebScenario(ScenarioBase):
 
             # Store expected data for validation
             self.setup_data = {
-                # Task 1: Factual Search
-                "expected_facts": {
-                    "year": "1991",
-                    "creator": "Guido van Rossum",
+                # Task 1: Recent Product Release — Google Pixel 10 announced Oct 2025
+                "pixel10_release": {
+                    "product": "Google Pixel 10",
+                    "month": "October",
+                    "year": "2025",
                 },
                 # Task 2: Stock Price Comparison (Feb 17, 2026 closing prices)
                 "stock_comparison": {

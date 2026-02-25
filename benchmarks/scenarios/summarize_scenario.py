@@ -231,6 +231,9 @@ class SummarizeScenario(ScenarioBase):
         local_mode = self.remote_manager is None
         checks = check_skills(self.required_skills, local_mode=local_mode, remote_manager=self.remote_manager)
 
+        # CRITICAL: Check OpenAI API key (required for AI agent)
+        checks.append(self._check_openai_api_key())
+
         checks.append(
             HealthCheckResult(
                 check_name="Summarize API Note",

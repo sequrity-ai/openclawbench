@@ -242,11 +242,14 @@ class GitHubScenario(ScenarioBase):
         local_mode = self.remote_manager is None
         checks = check_skills(self.required_skills, local_mode=local_mode, remote_manager=self.remote_manager)
 
+        # CRITICAL: Check OpenAI API key (required for AI agent)
+        checks.append(self._check_openai_api_key())
+
         # Check GitHub API access
         if self.github_setup.verify_api_access(self.test_repo_owner, self.test_repo_name):
             checks.append(
                 HealthCheckResult(
-                    check_name="GitHub API Access",
+                    check_name="GitHub API Access (Benchmark)",
                     status=CheckStatus.PASS,
                     message=f"GitHub API is accessible for {self.test_repo_owner}/{self.test_repo_name}",
                     details={"test_repo": f"{self.test_repo_owner}/{self.test_repo_name}"},
@@ -255,10 +258,14 @@ class GitHubScenario(ScenarioBase):
         else:
             checks.append(
                 HealthCheckResult(
-                    check_name="GitHub API Access",
+                    check_name="GitHub API Access (Benchmark)",
                     status=CheckStatus.FAIL,
-                    message="Cannot access GitHub API - check personal access token and repository permissions",
-                    details={"test_repo": f"{self.test_repo_owner}/{self.test_repo_name}"},
+                    message="Cannot access GitHub API - check GITHUB_TOKEN and repository permissions",
+                    details={
+                        "test_repo": f"{self.test_repo_owner}/{self.test_repo_name}",
+                        "error": "GitHub scenario requires personal access token for validation",
+                        "fix": "Configure GITHUB_TOKEN in .env with 'repo' scope",
+                    },
                 )
             )
 

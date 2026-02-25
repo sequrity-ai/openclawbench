@@ -233,11 +233,14 @@ class GmailScenario(ScenarioBase):
         local_mode = self.remote_manager is None
         checks = check_skills(self.required_skills, local_mode=local_mode, remote_manager=self.remote_manager)
 
+        # CRITICAL: Check OpenAI API key (required for AI agent)
+        checks.append(self._check_openai_api_key())
+
         # Check Gmail API access
         if self.gmail_setup.verify_api_access():
             checks.append(
                 HealthCheckResult(
-                    check_name="Gmail API Access",
+                    check_name="Gmail API Access (Benchmark)",
                     status=CheckStatus.PASS,
                     message="Gmail API is accessible with provided credentials",
                     details={"base_url": self.gmail_setup.BASE_URL},
@@ -246,10 +249,14 @@ class GmailScenario(ScenarioBase):
         else:
             checks.append(
                 HealthCheckResult(
-                    check_name="Gmail API Access",
+                    check_name="Gmail API Access (Benchmark)",
                     status=CheckStatus.FAIL,
-                    message="Cannot access Gmail API - check OAuth2 credentials",
-                    details={"base_url": self.gmail_setup.BASE_URL},
+                    message="Cannot access Gmail API - check OAuth2 credentials (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN)",
+                    details={
+                        "base_url": self.gmail_setup.BASE_URL,
+                        "error": "Gmail scenario requires OAuth2 credentials for validation",
+                        "fix": "Configure Google OAuth2 credentials in .env file",
+                    },
                 )
             )
 

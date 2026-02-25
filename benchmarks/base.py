@@ -235,6 +235,40 @@ class ScenarioBase(ABC):
         self.required_skills = required_skills
         self.tasks: list[BenchmarkTask] = []
 
+    @staticmethod
+    def _check_openai_api_key() -> HealthCheckResult:
+        """Check if OpenAI API key is configured (required for ALL scenarios).
+
+        Returns:
+            Health check result for OpenAI API key
+        """
+        import os
+        from config import Config
+
+        try:
+            config = Config()
+            api_key = config.openai_api_key
+        except Exception:
+            api_key = os.getenv("OPENAI_API_KEY", "")
+
+        if not api_key or api_key == "your_openai_api_key_here":
+            return HealthCheckResult(
+                check_name="OpenAI API Key (REQUIRED)",
+                status=CheckStatus.FAIL,
+                message="OPENAI_API_KEY not configured - required for AI agent in ALL scenarios",
+                details={
+                    "error": "AI agent needs OpenAI API to conduct multi-turn conversations",
+                    "fix": "Set OPENAI_API_KEY in .env file",
+                },
+            )
+        else:
+            return HealthCheckResult(
+                check_name="OpenAI API Key",
+                status=CheckStatus.PASS,
+                message=f"OpenAI API key configured ({api_key[:10]}...)",
+                details={"model": "AI agent uses this for conversations"},
+            )
+
     @abstractmethod
     def pre_check(self) -> list[HealthCheckResult]:
         """Run pre-flight health checks.

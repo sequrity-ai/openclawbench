@@ -253,6 +253,42 @@ class CompoundScenario(ScenarioBase):
         local_mode = self.remote_manager is None
         checks = check_skills(self.required_skills, local_mode=local_mode, remote_manager=self.remote_manager)
 
+        # CRITICAL: Check OpenAI API key (required for AI agent)
+        checks.append(self._check_openai_api_key())
+
+        # CRITICAL: Check Tavily API key (required for web search validation)
+        import os
+        from config import Config
+
+        tavily_api_key = ""
+        try:
+            config = Config()
+            tavily_api_key = config.tavily_api_key
+        except Exception:
+            tavily_api_key = os.getenv("TAVILY_API_KEY", "")
+
+        if not tavily_api_key or tavily_api_key == "your_tavily_api_key_here":
+            checks.append(
+                HealthCheckResult(
+                    check_name="Tavily API Key (Compound)",
+                    status=CheckStatus.FAIL,
+                    message="TAVILY_API_KEY not configured - required for web search tasks in compound scenario",
+                    details={
+                        "error": "Compound scenario includes web search tasks requiring Tavily API",
+                        "fix": "Get API key from https://tavily.com and set TAVILY_API_KEY in .env",
+                    },
+                )
+            )
+        else:
+            checks.append(
+                HealthCheckResult(
+                    check_name="Tavily API Key (Compound)",
+                    status=CheckStatus.PASS,
+                    message=f"Tavily API key configured ({tavily_api_key[:10]}...)",
+                    details={"validation_method": "tavily_api"},
+                )
+            )
+
         checks.append(
             HealthCheckResult(
                 check_name="Compound Scenario Note",
