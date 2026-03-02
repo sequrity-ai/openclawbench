@@ -75,7 +75,7 @@ any blockers that have come up.
             user_dir.mkdir(parents=True, exist_ok=True)
             profile = user_dir / "profile.txt"
             profile.write_text(
-                f"Email: {user['email']}\nRole: {user['role']}\nAction Items: 1\n"
+                f"Email: {user['email']}\nRole: {user['role']}\nAction Items: 0\n"
             )
 
         # MEDIUM Task 1: Create nested log files for recursive search

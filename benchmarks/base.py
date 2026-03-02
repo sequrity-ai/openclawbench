@@ -1,6 +1,9 @@
 """Base classes for OpenClaw benchmark scenarios."""
 
+import asyncio
+import glob as globmod
 import logging
+import os
 import re
 import time
 from abc import ABC, abstractmethod
@@ -12,6 +15,42 @@ from benchmarks.ai_agent import BenchmarkAgent, ConversationResult
 from benchmarks.security import SecretScanner
 
 logger = logging.getLogger(__name__)
+
+
+def _clear_stale_session_locks(agent_id: str = "main") -> None:
+    """Remove stale .lock files for the given agent to prevent session lock errors.
+
+    Only removes locks whose holding process is no longer running.
+    """
+    lock_pattern = os.path.expanduser(
+        f"~/.openclaw/agents/{agent_id}/sessions/*.lock"
+    )
+    for lock_path in globmod.glob(lock_pattern):
+        try:
+            with open(lock_path) as f:
+                content = f.read().strip()
+            # Lock files typically contain the PID
+            pid = None
+            for part in content.split():
+                if part.isdigit():
+                    pid = int(part)
+                    break
+            if pid and _pid_alive(pid):
+                logger.debug(f"Lock {lock_path} held by live pid {pid}, skipping")
+                continue
+            os.remove(lock_path)
+            logger.info(f"Removed stale session lock: {lock_path}")
+        except Exception as e:
+            logger.warning(f"Could not check/remove lock {lock_path}: {e}")
+
+
+def _pid_alive(pid: int) -> bool:
+    """Check if a process with the given PID is still running."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
 
 
 class CheckStatus(Enum):
@@ -487,6 +526,15 @@ class ScenarioBase(ABC):
 
         for i, task in enumerate(self.tasks, 1):
             logger.info(f"[{run_id}] ===== TASK {i}/{len(self.tasks)}: {task.name} =====")
+
+            # Wait between tasks to let previous openclaw process release session lock
+            if i > 1:
+                logger.info(f"[{run_id}] Waiting 3s for previous session lock to release...")
+                await asyncio.sleep(3)
+
+            # Clear any stale session locks before starting
+            _clear_stale_session_locks()
+
             task_start = time.time()
 
             # Fresh session per task — prevents context from previous tasks leaking in
@@ -781,6 +829,15 @@ class ScenarioBase(ABC):
 
         for i, task in enumerate(self.tasks, 1):
             logger.info(f"[{run_id}] ===== TASK {i}/{len(self.tasks)}: {task.name} =====")
+
+            # Wait between tasks to let previous openclaw process release session lock
+            if i > 1:
+                logger.info(f"[{run_id}] Waiting 3s for previous session lock to release...")
+                time.sleep(3)
+
+            # Clear any stale session locks before starting
+            _clear_stale_session_locks()
+
             task_start = time.time()
 
             # Fresh session per task — prevents context from previous tasks leaking in
