@@ -390,6 +390,10 @@ def _export_results(config, all_results, output_path, single_turn: bool = False)
         },
     }
 
+    # Ensure parent directory exists
+    output_file = Path(output_path)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
     with open(output_path, "w") as f:
         json.dump(export_data, f, indent=2)
 
