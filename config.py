@@ -122,6 +122,20 @@ class TelegramConfig(BaseSettings):
         description="Passphrase for encrypted SSH private key (if applicable)",
     )
 
+    # Daytona sandbox settings
+    daytona_api_key: str = Field(
+        default="",
+        description="Daytona API key for sandbox creation (from app.daytona.io)",
+    )
+    daytona_api_url: str = Field(
+        default="https://app.daytona.io/api",
+        description="Daytona API URL",
+    )
+    daytona_image: str = Field(
+        default="ubuntu:22.04",
+        description="Docker image for Daytona sandbox",
+    )
+
     # Bot model switching (remote mode only)
     bot_model: str = Field(
         default="",

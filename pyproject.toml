@@ -16,6 +16,7 @@ dependencies = [
     "google-auth-oauthlib>=1.2.4",
     "google-auth-httplib2>=0.3.0",
     "tavily-python>=0.7.21",
+    "daytona-sdk>=0.149.0",
 ]
 
 [project.optional-dependencies]

@@ -95,6 +95,65 @@ def _restore_soul(config: TelegramConfig, backup_path: str | None) -> None:
     print("Custom bot prompt: restored original SOUL.md")
 
 
+def _create_workspace_manager(config: TelegramConfig, backend: str | None = None):
+    """Create the appropriate workspace manager based on backend choice.
+
+    Args:
+        config: Application configuration
+        backend: Backend type ('ssh', 'daytona', 'local', or None for auto-detect)
+
+    Returns:
+        Workspace manager instance, or None for local-only mode
+    """
+    # Auto-detect backend if not specified
+    if backend is None:
+        if config.local_mode:
+            backend = "local"
+        elif config.daytona_api_key:
+            backend = "daytona"
+        elif config.bot_ssh_key_path or config.bot_ssh_password:
+            backend = "ssh"
+        else:
+            backend = "local"
+
+    if backend == "local":
+        return None
+
+    if backend == "daytona":
+        if not config.daytona_api_key:
+            print("ERROR: Daytona backend requires DAYTONA_API_KEY")
+            raise ValueError("DAYTONA_API_KEY not set")
+        from benchmarks.daytona_workspace import DaytonaWorkspaceManager
+        manager = DaytonaWorkspaceManager(
+            api_key=config.daytona_api_key,
+            api_url=config.daytona_api_url,
+            image=config.daytona_image,
+            workspace_path=config.bot_workspace_path,
+        )
+        print(f"Workspace backend: Daytona (image={config.daytona_image})")
+        return manager
+
+    if backend == "ssh":
+        if not (config.bot_ssh_key_path or config.bot_ssh_password):
+            logger.warning("SSH backend without credentials - validation will be skipped")
+            print("WARNING: SSH backend without credentials - file validation will be skipped")
+            return None
+        from benchmarks.remote_workspace import RemoteWorkspaceManager
+        manager = RemoteWorkspaceManager(
+            host=config.bot_ssh_host,
+            port=config.bot_ssh_port,
+            user=config.bot_ssh_user,
+            key_path=config.bot_ssh_key_path if config.bot_ssh_key_path else None,
+            password=config.bot_ssh_password if config.bot_ssh_password else None,
+            workspace_path=config.bot_workspace_path,
+            key_passphrase=config.bot_ssh_key_passphrase if config.bot_ssh_key_passphrase else None,
+        )
+        print(f"Workspace backend: SSH ({config.bot_ssh_user}@{config.bot_ssh_host})")
+        return manager
+
+    raise ValueError(f"Unknown backend: {backend}")
+
+
 def setup_logging(verbose: bool = False) -> None:
     """Set up logging configuration.
 
@@ -402,25 +461,8 @@ def _export_results(config, all_results, output_path, single_turn: bool = False)
 
 async def run_benchmark_suite_async(config: TelegramConfig, args) -> None:
     """Run benchmark suite asynchronously."""
-    # Create RemoteWorkspaceManager if in remote mode (Telegram) and SSH is configured
-    remote_manager = None
-    if not config.local_mode:
-        if config.bot_ssh_key_path or config.bot_ssh_password:
-            logger.info("Remote validation enabled via SSH")
-            from benchmarks.remote_workspace import RemoteWorkspaceManager
-            remote_manager = RemoteWorkspaceManager(
-                host=config.bot_ssh_host,
-                port=config.bot_ssh_port,
-                user=config.bot_ssh_user,
-                key_path=config.bot_ssh_key_path if config.bot_ssh_key_path else None,
-                password=config.bot_ssh_password if config.bot_ssh_password else None,
-                workspace_path=config.bot_workspace_path,
-                key_passphrase=config.bot_ssh_key_passphrase if config.bot_ssh_key_passphrase else None,
-            )
-            print(f"Remote validation: SSH to {config.bot_ssh_user}@{config.bot_ssh_host}")
-        else:
-            logger.warning("Remote mode without SSH credentials - validation will be skipped")
-            print("⚠️  Remote mode without SSH credentials - file validation will be skipped")
+    backend = getattr(args, "backend", None)
+    remote_manager = _create_workspace_manager(config, backend)
 
     # Switch bot model if requested
     if config.bot_model and config.local_mode:
@@ -535,25 +577,8 @@ async def run_benchmark_suite_async(config: TelegramConfig, args) -> None:
 
 def run_benchmark_suite_sync(config: TelegramConfig, args) -> None:
     """Run benchmark suite synchronously."""
-    # Create RemoteWorkspaceManager if in remote mode (Telegram) and SSH is configured
-    remote_manager = None
-    if not config.local_mode:
-        if config.bot_ssh_key_path or config.bot_ssh_password:
-            logger.info("Remote validation enabled via SSH")
-            from benchmarks.remote_workspace import RemoteWorkspaceManager
-            remote_manager = RemoteWorkspaceManager(
-                host=config.bot_ssh_host,
-                port=config.bot_ssh_port,
-                user=config.bot_ssh_user,
-                key_path=config.bot_ssh_key_path if config.bot_ssh_key_path else None,
-                password=config.bot_ssh_password if config.bot_ssh_password else None,
-                workspace_path=config.bot_workspace_path,
-                key_passphrase=config.bot_ssh_key_passphrase if config.bot_ssh_key_passphrase else None,
-            )
-            print(f"Remote validation: SSH to {config.bot_ssh_user}@{config.bot_ssh_host}")
-        else:
-            logger.warning("Remote mode without SSH credentials - validation will be skipped")
-            print("⚠️  Remote mode without SSH credentials - file validation will be skipped")
+    backend = getattr(args, "backend", None)
+    remote_manager = _create_workspace_manager(config, backend)
 
     # Switch bot model if requested
     if config.bot_model and config.local_mode:
@@ -679,7 +704,9 @@ def _log_memory(label: str = "") -> None:
 
 async def run_benchmark_sweep_async(config: TelegramConfig, args) -> None:
     """Run benchmark suite across all available models (sweep mode)."""
-    from benchmarks.remote_workspace import LocalModelManager, RemoteWorkspaceManager
+    from benchmarks.remote_workspace import LocalModelManager
+
+    backend = getattr(args, "backend", None)
 
     if config.local_mode:
         manager = LocalModelManager()
@@ -687,23 +714,14 @@ async def run_benchmark_sweep_async(config: TelegramConfig, args) -> None:
         bot_identifier: str | int = 0
         print("Local sweep: using openclaw CLI directly")
     else:
-        if not (config.bot_ssh_key_path or config.bot_ssh_password):
-            print("ERROR: benchmark-sweep requires SSH credentials.")
-            print("Set BOT_SSH_KEY_PATH or BOT_SSH_PASSWORD in your .env file.")
-            raise ValueError("benchmark-sweep requires SSH credentials for model discovery")
-
-        manager = RemoteWorkspaceManager(
-            host=config.bot_ssh_host,
-            port=config.bot_ssh_port,
-            user=config.bot_ssh_user,
-            key_path=config.bot_ssh_key_path if config.bot_ssh_key_path else None,
-            password=config.bot_ssh_password if config.bot_ssh_password else None,
-            workspace_path=config.bot_workspace_path,
-            key_passphrase=config.bot_ssh_key_passphrase if config.bot_ssh_key_passphrase else None,
-        )
+        workspace_mgr = _create_workspace_manager(config, backend)
+        if workspace_mgr is None:
+            print("ERROR: benchmark-sweep requires a workspace backend (ssh or daytona).")
+            print("Set BOT_SSH_KEY_PATH, BOT_SSH_PASSWORD, or DAYTONA_API_KEY in your .env file.")
+            raise ValueError("benchmark-sweep requires a workspace backend for model discovery")
+        manager = workspace_mgr
         client_cls = TelegramClient
         bot_identifier = config.openclaw_bot_username
-        print(f"Remote sweep: SSH to {config.bot_ssh_user}@{config.bot_ssh_host}")
 
     # Keep a reference for scenarios that need remote_manager (file setup/validate)
     remote_manager = manager if not config.local_mode else None
@@ -974,6 +992,12 @@ def main() -> int:
         "--local",
         action="store_true",
         help="Use local OpenClaw gateway (no Telegram needed)",
+    )
+    parser.add_argument(
+        "--backend",
+        choices=["ssh", "daytona", "local"],
+        default=None,
+        help="Workspace backend: ssh (default remote), daytona (sandbox), local (filesystem)",
     )
 
     # Subcommands

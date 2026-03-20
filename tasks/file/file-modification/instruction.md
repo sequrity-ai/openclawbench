@@ -1,0 +1,3 @@
+# File Modification
+
+Read /workspace/notes.txt to count how many action items each person has. Count ONLY action items explicitly assigned to each person by their name (e.g., 'Alice:', 'Bob:', 'Carol:'). Do NOT count action items assigned to 'Everyone' or group names. Then update each profile.txt file in /workspace/users/ directories to set the 'Action Items: X' line where X is the correct count of action items for that person. The profile.txt files already exist with Email, Role, and an Action Items line that may need correcting. If a user has no action items explicitly assigned to them by name, use 0.

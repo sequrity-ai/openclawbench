@@ -99,10 +99,19 @@ class LocalClient:
             logger.error(f"Agent command failed: {result.stderr.strip()}")
             raise ValueError(f"Agent command failed: {result.stderr.strip()}")
 
+        # openclaw may print non-JSON lines (plugin logs) before the JSON output
+        stdout = result.stdout
         try:
-            data = json.loads(result.stdout)
+            data = json.loads(stdout)
         except json.JSONDecodeError:
-            raise ValueError(f"Failed to parse agent response: {result.stdout[:200]}")
+            json_start = stdout.find("{")
+            if json_start >= 0:
+                try:
+                    data = json.loads(stdout[json_start:])
+                except json.JSONDecodeError:
+                    raise ValueError(f"Failed to parse agent response: {stdout[:200]}")
+            else:
+                raise ValueError(f"No JSON found in agent response: {stdout[:200]}")
 
         # Extract response text from payloads
         payloads = data.get("result", {}).get("payloads", [])
