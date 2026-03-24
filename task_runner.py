@@ -473,14 +473,22 @@ class DaytonaBackend:
             logger.info("Cleaned workspace in sandbox")
 
     def destroy(self) -> None:
-        """Delete the sandbox entirely."""
+        """Stop and delete the sandbox."""
         if self._sandbox is not None:
+            client = self._get_client()
+            sid = self._sandbox.id
+            # Stop first (required before delete on some plans)
             try:
-                client = self._get_client()
-                client.delete(self._sandbox)
-                logger.info(f"Sandbox deleted: {self._sandbox.id}")
+                client.stop(self._sandbox)
+                logger.info(f"Sandbox stopped: {sid}")
             except Exception as e:
-                logger.warning(f"Failed to delete sandbox: {e}")
+                logger.debug(f"Sandbox stop skipped ({sid}): {e}")
+            # Then delete
+            try:
+                client.delete(self._sandbox)
+                logger.info(f"Sandbox deleted: {sid}")
+            except Exception as e:
+                logger.warning(f"Failed to delete sandbox {sid}: {e}")
             self._sandbox = None
 
     def run_verifier(self, task: TaskSpec, response_text: str | None = None) -> float:
@@ -774,9 +782,14 @@ class TaskRunner:
         meta = inner.get("meta", {})
         agent_meta = meta.get("agentMeta", {})
         usage = agent_meta.get("usage", {})
+        last_call = agent_meta.get("lastCallUsage", {})
+        inp = usage.get("input", 0)
+        # Log raw usage for debugging cache reads
+        if inp > 36000:  # 3+ turns
+            logger.debug(f"[cache-debug] usage={usage} lastCallUsage={last_call}")
         return {
             "text": text,
-            "input_tokens": usage.get("input", 0),
+            "input_tokens": inp,
             "output_tokens": usage.get("output", 0),
             "reasoning_tokens": usage.get("reasoning", 0),
             "cache_read_tokens": usage.get("totalCacheRead", 0) or usage.get("cacheRead", 0),
