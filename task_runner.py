@@ -750,9 +750,11 @@ class TaskRunner:
         if result.returncode != 0:
             raise RuntimeError(f"Agent command failed (rc={result.returncode}): {result.stderr.strip()[:500]}")
 
-        # openclaw may print non-JSON lines (plugin logs) before the JSON output
-        # Find the first line that starts with '{' and parse from there
+        # openclaw may write JSON to stderr (e.g. when runtime.log goes to stderr)
+        # Fall back to stderr if stdout has no JSON
         stdout = result.stdout
+        if not stdout.strip() or "{" not in stdout:
+            stdout = result.stderr
         try:
             data = json.loads(stdout)
         except json.JSONDecodeError:
