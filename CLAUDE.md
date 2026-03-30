@@ -78,9 +78,9 @@ OpenAI, Anthropic, etc. are stateless — every request includes the full conver
 
 ### strip_response_content
 
-Keep `strip_response_content: false` in the `X-Config` header. When `true`, the endpoint returns the raw response value (not JSON-wrapped SSE), which the OpenAI SDK in pi-ai can't parse — tool calls come through as `null` and the agent stops after one tool call.
+Keep `strip_response_content: true` in the `X-Config` header. When `true`, the endpoint returns the raw response value directly, which is the correct mode for openclaw's agent runner.
 
-With `false`, the endpoint returns standard OpenAI SSE streaming format that pi-ai parses correctly, passing tool calls back to openclaw for local execution at `/tmp/openclaw_benchmark`.
+With `false`, the endpoint wraps responses in an extra JSON-SSE layer that can cause double-parsing issues.
 
 ### Current openclaw.json config (sequrity provider)
 
@@ -91,7 +91,7 @@ With `false`, the endpoint returns standard OpenAI SSE streaming format that pi-
   "headers": {
     "X-Features": "{\"agent_arch\":\"dual-llm\"}",
     "X-Policy": "{\"mode\": \"standard\", \"presets\": {\"default_allow\": true, \"default_allow_enforcement_level\": \"soft\"}}",
-    "X-Config": "{\"fsm\":{\"enable_multistep_planning\":true,\"disable_rllm\":true,\"max_n_turns\":50,\"max_pllm_steps\":50,\"max_pllm_failed_steps\":10,\"history_mismatch_policy\":\"restart_turn\"},\"response_format\":{\"strip_response_content\":false}}"
+    "X-Config": "{\"fsm\":{\"enable_multistep_planning\":true,\"disable_rllm\":true,\"max_n_turns\":50,\"max_pllm_steps\":50,\"max_pllm_failed_steps\":10,\"history_mismatch_policy\":\"restart_turn\"},\"response_format\":{\"strip_response_content\":true}}"
   }
 }
 ```
