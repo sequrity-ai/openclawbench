@@ -96,7 +96,8 @@ def setup_logging(verbose: bool = False) -> None:
     )
 
 
-def create_backend(backend_name: str, config: TelegramConfig):
+def create_backend(backend_name: str, config: TelegramConfig,
+                    provider: str = "sequrity", model: str = "gpt-5.2"):
     """Create the appropriate workspace backend."""
     if backend_name == "local":
         return LocalBackend(config.bot_workspace_path)
@@ -108,6 +109,8 @@ def create_backend(backend_name: str, config: TelegramConfig):
             api_key=config.daytona_api_key,
             api_url=config.daytona_api_url,
             image=config.daytona_image,
+            provider=provider,
+            model=model,
         )
     else:
         print(f"ERROR: Unknown backend: {backend_name}")
@@ -193,12 +196,15 @@ async def run_bench(args, config: TelegramConfig) -> None:
         print("No tasks found matching filters.")
         sys.exit(1)
 
+    provider = args.provider or "sequrity"
+    model = args.model or "gpt-5.2"
     scenario_label = args.scenario if not args.task else tasks[0].scenario
-    print(f"Running {len(tasks)} task(s) [{scenario_label}] with backend={args.backend}")
+    model_label = f" ({provider}/{model})" if args.backend == "daytona" else ""
+    print(f"Running {len(tasks)} task(s) [{scenario_label}] with backend={args.backend}{model_label}")
     print("=" * 60)
 
     # Create backend and runner
-    backend = create_backend(args.backend, config)
+    backend = create_backend(args.backend, config, provider=provider, model=model)
     runner = TaskRunner(
         backend=backend,
         agent_id=config.agent_id,
@@ -258,6 +264,16 @@ def main():
         choices=["easy", "medium", "hard", "all"],
         default="all",
         help="Filter tasks by difficulty",
+    )
+    parser.add_argument(
+        "--provider", "-p",
+        default=None,
+        help="LLM provider for Daytona backend (e.g. sequrity, openai, anthropic, google). Default: sequrity",
+    )
+    parser.add_argument(
+        "--model", "-m",
+        default=None,
+        help="Model ID for Daytona backend (e.g. gpt-5.2, claude-sonnet-4-6, gpt-5.4). Default: gpt-5.2",
     )
     parser.add_argument(
         "--task", "-t",

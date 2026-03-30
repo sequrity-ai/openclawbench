@@ -259,9 +259,50 @@ class LocalBackend:
 class DaytonaBackend:
     """Runs tasks in a Daytona cloud sandbox with openclaw agent installed."""
 
+    # Built-in provider definitions: env var, base URL, and API adapter type.
+    # openclaw validates that baseUrl and models are present even for well-known
+    # providers, so we must supply the full config block.
+    BUILTIN_PROVIDERS: dict[str, dict[str, str]] = {
+        "openai": {
+            "env_var": "OPENAI_API_KEY",
+            "baseUrl": "https://api.openai.com/v1",
+            "api": "openai-completions",
+        },
+        "anthropic": {
+            "env_var": "ANTHROPIC_API_KEY",
+            "baseUrl": "https://api.anthropic.com",
+            "api": "anthropic-messages",
+        },
+        "google": {
+            "env_var": "GEMINI_API_KEY",
+            "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+            "api": "google-generative-ai",
+        },
+        "groq": {
+            "env_var": "GROQ_API_KEY",
+            "baseUrl": "https://api.groq.com/openai/v1",
+            "api": "openai-completions",
+        },
+        "mistral": {
+            "env_var": "MISTRAL_API_KEY",
+            "baseUrl": "https://api.mistral.ai/v1",
+            "api": "openai-completions",
+        },
+        "xai": {
+            "env_var": "XAI_API_KEY",
+            "baseUrl": "https://api.x.ai/v1",
+            "api": "openai-completions",
+        },
+        "together": {
+            "env_var": "TOGETHER_API_KEY",
+            "baseUrl": "https://api.together.xyz/v1",
+            "api": "openai-completions",
+        },
+    }
+
     @staticmethod
-    def _build_openclaw_config() -> dict:
-        """Build openclaw config for the sandbox from environment variables.
+    def _build_sequrity_provider_config() -> dict:
+        """Build the custom sequrity provider config block.
 
         Requires SEQURITY_API_KEY, SEQURITY_AZURE_KEY in env or .env file.
         Uses SEQURITY_BASE_URL if set, otherwise defaults to public endpoint.
@@ -272,43 +313,107 @@ class DaytonaBackend:
             "SEQURITY_BASE_URL",
             "https://api.sequrity.ai/control/chat/sequrity_azure/v1",
         )
+        return {
+            "baseUrl": base_url,
+            "apiKey": api_key,
+            "api": "openai-completions",
+            "headers": {
+                "X-Features": '{"agent_arch":"dual-llm"}',
+                "X-Policy": '{"mode": "standard", "presets": {"default_allow": true, "default_allow_enforcement_level": "soft"}}',
+                "X-Config": '{"fsm":{"enable_multistep_planning":true,"disable_rllm":true,"max_n_turns":50,"max_pllm_steps":50,"max_pllm_failed_steps":10,"history_mismatch_policy":"restart_turn"},"response_format":{"strip_response_content":true}}',
+                "X-Api-Key": azure_key,
+            },
+            "authHeader": True,
+            "models": [
+                {
+                    "id": "gpt-5.2",
+                    "name": "Sequrity Azure GPT-5.2",
+                    "reasoning": False,
+                    "input": ["text"],
+                    "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+                    "contextWindow": 200000,
+                    "maxTokens": 16384,
+                    "compat": {
+                        "supportsDeveloperRole": False,
+                        "supportsUsageInStreaming": False,
+                        "supportsStrictMode": True,
+                    },
+                }
+            ],
+        }
+
+    @classmethod
+    def _build_openclaw_config(cls, provider: str, model: str) -> dict:
+        """Build openclaw config for the sandbox.
+
+        Args:
+            provider: Provider name (e.g. "sequrity", "openai", "anthropic").
+            model: Model ID (e.g. "gpt-5.2", "claude-sonnet-4-6", "gpt-5.4").
+        """
+        # --- provider-specific models block ---
+        providers_block: dict[str, Any] = {}
+
+        # Helper to build a minimal model catalog entry for the requested model.
+        def _model_entry(model_id: str) -> list[dict[str, Any]]:
+            return [
+                {
+                    "id": model_id,
+                    "name": model_id,
+                    "reasoning": False,
+                    "input": ["text"],
+                    "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+                    "contextWindow": 200000,
+                    "maxTokens": 16384,
+                }
+            ]
+
+        if provider == "sequrity":
+            providers_block["sequrity"] = cls._build_sequrity_provider_config()
+        elif provider in cls.BUILTIN_PROVIDERS:
+            info = cls.BUILTIN_PROVIDERS[provider]
+            env_var = info["env_var"]
+            api_key = os.environ.get(env_var, "")
+            if not api_key:
+                logger.warning(
+                    f"Environment variable {env_var} is not set — "
+                    f"the {provider} provider may fail to authenticate in the sandbox."
+                )
+            providers_block[provider] = {
+                "baseUrl": info["baseUrl"],
+                "apiKey": api_key,
+                "api": info["api"],
+                "models": _model_entry(model),
+            }
+        else:
+            # Unknown provider — assume OpenAI-compatible and let the user
+            # supply config via env vars named <PROVIDER>_API_KEY / _BASE_URL.
+            env_prefix = provider.upper().replace("-", "_")
+            api_key = os.environ.get(f"{env_prefix}_API_KEY", "")
+            base_url = os.environ.get(f"{env_prefix}_BASE_URL", "")
+            if not api_key:
+                logger.warning(
+                    f"No API key found for custom provider '{provider}' — "
+                    f"set {env_prefix}_API_KEY in your environment."
+                )
+            if not base_url:
+                logger.warning(
+                    f"No base URL for custom provider '{provider}' — "
+                    f"set {env_prefix}_BASE_URL in your environment."
+                )
+            providers_block[provider] = {
+                "baseUrl": base_url,
+                "apiKey": api_key,
+                "api": "openai-completions",
+                "models": _model_entry(model),
+            }
+
+        model_ref = f"{provider}/{model}"
 
         return {
-            "models": {
-                "providers": {
-                    "sequrity": {
-                        "baseUrl": base_url,
-                        "apiKey": api_key,
-                        "api": "openai-completions",
-                        "headers": {
-                            "X-Features": '{"agent_arch":"dual-llm"}',
-                            "X-Policy": '{"mode": "standard", "presets": {"default_allow": true, "default_allow_enforcement_level": "soft"}}',
-                            "X-Config": '{"fsm":{"enable_multistep_planning":true,"disable_rllm":true,"max_n_turns":50,"max_pllm_steps":50,"max_pllm_failed_steps":10,"history_mismatch_policy":"restart_turn"},"response_format":{"strip_response_content":true}}',
-                            "X-Api-Key": azure_key,
-                        },
-                        "authHeader": True,
-                        "models": [
-                            {
-                                "id": "gpt-5.2",
-                                "name": "Sequrity Azure GPT-5.2",
-                                "reasoning": False,
-                                "input": ["text"],
-                                "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-                                "contextWindow": 200000,
-                                "maxTokens": 16384,
-                                "compat": {
-                                    "supportsDeveloperRole": False,
-                                    "supportsUsageInStreaming": False,
-                                    "supportsStrictMode": True,
-                                },
-                            }
-                        ],
-                    }
-                }
-            },
+            "models": {"providers": providers_block},
             "agents": {
                 "defaults": {
-                    "model": {"primary": "sequrity/gpt-5.2", "fallbacks": []},
+                    "model": {"primary": model_ref, "fallbacks": []},
                     "workspace": "/workspace",
                     "timeoutSeconds": 300,
                     "sandbox": {"mode": "off"},
@@ -326,11 +431,14 @@ class DaytonaBackend:
         }
 
     def __init__(self, api_key: str, api_url: str = "https://app.daytona.io/api",
-                 image: str = "node:22-bookworm", workspace_path: str = "/workspace"):
+                 image: str = "node:22-bookworm", workspace_path: str = "/workspace",
+                 provider: str = "sequrity", model: str = "gpt-5.2"):
         self.api_key = api_key
         self.api_url = api_url
         self.image = image
         self.workspace_path = workspace_path
+        self.provider = provider
+        self.model = model
         self._daytona = None
         self._sandbox = None
 
@@ -375,7 +483,7 @@ class DaytonaBackend:
         )
 
         # Write openclaw config
-        config_json = json.dumps(self._build_openclaw_config(), indent=2)
+        config_json = json.dumps(self._build_openclaw_config(self.provider, self.model), indent=2)
         self._sandbox.process.exec("mkdir -p /root/.openclaw")
         self._sandbox.fs.upload_file(
             config_json.encode("utf-8"),
