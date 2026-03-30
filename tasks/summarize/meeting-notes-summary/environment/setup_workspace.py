@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Setup workspace for meeting-notes-summary task."""
+
 import os
 import sys
 

@@ -3,6 +3,7 @@
 Creates /workspace/thread.txt with a 4-message email thread.
 The last message is from Marcus Webb with decision: "Let's go with Option B".
 """
+
 import os
 import sys
 

@@ -2,6 +2,7 @@
 """Setup workspace for find-subject task.
 Creates /workspace/emails/ with 5 email files, one containing Invoice #4472.
 """
+
 import os
 import sys
 
@@ -25,7 +26,7 @@ Please review the updated remote work policy attached to this email. The new gui
 
 Regards,
 HR Team
-"""
+""",
     ),
     (
         "email_002.txt",
@@ -43,7 +44,7 @@ Please find enclosed Invoice #4472 for services rendered in March 2026. The tota
 Best regards,
 Accounts Payable
 Vendor Solutions Ltd.
-"""
+""",
     ),
     (
         "email_003.txt",
@@ -60,7 +61,7 @@ Your annual security awareness training must be completed by March 31, 2026. Ple
 
 Thanks,
 IT Security
-"""
+""",
     ),
     (
         "email_004.txt",
@@ -77,7 +78,7 @@ Just confirming our lunch meeting tomorrow at noon at the usual place. Looking f
 
 Best,
 Alice
-"""
+""",
     ),
     (
         "email_005.txt",
@@ -94,7 +95,7 @@ This week's top stories in cloud computing:
 - Security vulnerabilities patched in popular container runtime
 
 Read more at techdigest.io
-"""
+""",
     ),
 ]
 

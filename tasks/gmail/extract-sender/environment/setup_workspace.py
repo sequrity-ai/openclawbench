@@ -2,6 +2,7 @@
 """Setup workspace for extract-sender task.
 Creates /workspace/email.txt with a single email from Dr. Sarah Chen.
 """
+
 import os
 import sys
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Setup workspace for technical-doc-summary task."""
+
 import os
 import sys
 

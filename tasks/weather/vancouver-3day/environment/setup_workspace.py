@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Minimal workspace setup for vancouver-3day task."""
+
 import os
 import sys
 

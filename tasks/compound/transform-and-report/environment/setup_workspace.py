@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Setup workspace for transform-and-report task."""
+
 import os
 import sys
 

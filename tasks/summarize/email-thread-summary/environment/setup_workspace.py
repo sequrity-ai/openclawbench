@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Setup workspace for email-thread-summary task."""
+
 import os
 import sys
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Minimal workspace setup for fetch-and-save task."""
+
 import os
 import sys
 

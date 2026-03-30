@@ -4,6 +4,7 @@ Creates /workspace/inbox.txt with 12 emails:
   4 billing/invoices, 3 meeting invites, 5 project updates.
 No Category header - inferred from content.
 """
+
 import os
 import sys
 

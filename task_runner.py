@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 # Data classes
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class TaskSpec:
     """A task loaded from a directory."""
@@ -164,6 +165,7 @@ class SuiteResult:
 # Workspace backends
 # ---------------------------------------------------------------------------
 
+
 class LocalBackend:
     """Runs tasks on the local filesystem."""
 
@@ -180,13 +182,17 @@ class LocalBackend:
         if setup_py.exists():
             subprocess.run(
                 ["python3", str(setup_py), self.workspace_path],
-                check=True, capture_output=True, text=True,
+                check=True,
+                capture_output=True,
+                text=True,
             )
             logger.info(f"Setup complete: {setup_py}")
         elif setup_sh.exists():
             subprocess.run(
                 ["bash", str(setup_sh), self.workspace_path],
-                check=True, capture_output=True, text=True,
+                check=True,
+                capture_output=True,
+                text=True,
             )
             logger.info(f"Setup complete: {setup_sh}")
         else:
@@ -222,11 +228,15 @@ class LocalBackend:
             script = test_sh.read_text()
             script = script.replace("/workspace", self.workspace_path)
             script = script.replace("/logs/verifier", reward_dir)
-            script = script.replace("/logs/agent", os.path.join(self.workspace_path, ".logs", "agent"))
+            script = script.replace(
+                "/logs/agent", os.path.join(self.workspace_path, ".logs", "agent")
+            )
 
             result = subprocess.run(
                 ["bash", "-c", script],
-                capture_output=True, text=True, timeout=task.verifier_timeout_sec,
+                capture_output=True,
+                text=True,
+                timeout=task.verifier_timeout_sec,
                 env=env,
             )
             if result.returncode != 0:
@@ -235,11 +245,15 @@ class LocalBackend:
             script = test_py.read_text()
             script = script.replace("/workspace", self.workspace_path)
             script = script.replace("/logs/verifier", reward_dir)
-            script = script.replace("/logs/agent", os.path.join(self.workspace_path, ".logs", "agent"))
+            script = script.replace(
+                "/logs/agent", os.path.join(self.workspace_path, ".logs", "agent")
+            )
 
             result = subprocess.run(
                 ["python3", "-c", script],
-                capture_output=True, text=True, timeout=task.verifier_timeout_sec,
+                capture_output=True,
+                text=True,
+                timeout=task.verifier_timeout_sec,
                 env=env,
             )
             if result.returncode != 0:
@@ -430,9 +444,15 @@ class DaytonaBackend:
             },
         }
 
-    def __init__(self, api_key: str, api_url: str = "https://app.daytona.io/api",
-                 image: str = "node:22-bookworm", workspace_path: str = "/workspace",
-                 provider: str = "sequrity", model: str = "gpt-5.2"):
+    def __init__(
+        self,
+        api_key: str,
+        api_url: str = "https://app.daytona.io/api",
+        image: str = "node:22-bookworm",
+        workspace_path: str = "/workspace",
+        provider: str = "sequrity",
+        model: str = "gpt-5.2",
+    ):
         self.api_key = api_key
         self.api_url = api_url
         self.image = image
@@ -445,15 +465,19 @@ class DaytonaBackend:
     def _get_client(self):
         if self._daytona is None:
             from daytona_sdk import Daytona, DaytonaConfig
-            self._daytona = Daytona(DaytonaConfig(
-                api_key=self.api_key,
-                api_url=self.api_url,
-            ))
+
+            self._daytona = Daytona(
+                DaytonaConfig(
+                    api_key=self.api_key,
+                    api_url=self.api_url,
+                )
+            )
         return self._daytona
 
     def _ensure_sandbox(self):
         if self._sandbox is None:
             from daytona_sdk import CreateSandboxFromImageParams
+
             client = self._get_client()
             logger.info("Creating Daytona sandbox...")
             self._sandbox = client.create(
@@ -498,7 +522,9 @@ class DaytonaBackend:
         # Log the config for debugging
         logger.info("Sandbox config: workspace=/workspace, sandbox=off, exec.host=node")
 
-    def send_to_agent(self, message: str, timeout: float, agent_id: str = "main", session_id: str | None = None) -> dict:
+    def send_to_agent(
+        self, message: str, timeout: float, agent_id: str = "main", session_id: str | None = None
+    ) -> dict:
         """Run openclaw agent inside the sandbox and return parsed response."""
         self._ensure_sandbox()
 
@@ -514,7 +540,9 @@ class DaytonaBackend:
 
         r = self._sandbox.process.exec(cmd, timeout=int(timeout) + 240)
         stdout = r.result
-        logger.info(f"[agent raw] exit={getattr(r, 'exit_code', '?')} len={len(stdout) if stdout else 0} first500={repr(stdout[:500] if stdout else None)}")
+        logger.info(
+            f"[agent raw] exit={getattr(r, 'exit_code', '?')} len={len(stdout) if stdout else 0} first500={repr(stdout[:500] if stdout else None)}"
+        )
 
         if not stdout or not stdout.strip():
             raise RuntimeError("Empty response from agent in sandbox")
@@ -633,6 +661,7 @@ class DaytonaBackend:
 # ---------------------------------------------------------------------------
 # Task discovery
 # ---------------------------------------------------------------------------
+
 
 def _parse_toml_simple(text: str) -> dict:
     """Minimal TOML parser for task.toml files.
@@ -789,6 +818,7 @@ def discover_tasks(
 # Session lock cleanup (from base.py)
 # ---------------------------------------------------------------------------
 
+
 def _clear_stale_session_locks(agent_id: str = "main") -> None:
     """Remove stale .lock files for the given agent."""
     import glob as globmod
@@ -819,6 +849,7 @@ def _clear_stale_session_locks(agent_id: str = "main") -> None:
 # Task runner
 # ---------------------------------------------------------------------------
 
+
 class TaskRunner:
     """Runs benchmark tasks from Harbor-format directories."""
 
@@ -839,24 +870,32 @@ class TaskRunner:
         reasoning_tokens, cache_read_tokens, duration_ms, model.
         """
         cmd = [
-            "openclaw", "agent",
+            "openclaw",
+            "agent",
             "--local",
-            "--session-id", session_id or f"bench-{int(time.time())}",
-            "--message", message,
+            "--session-id",
+            session_id or f"bench-{int(time.time())}",
+            "--message",
+            message,
             "--json",
-            "--timeout", str(int(timeout)),
+            "--timeout",
+            str(int(timeout)),
         ]
 
         logger.debug(f"Running: openclaw agent --message '{message[:80]}...'")
         result = subprocess.run(
-            cmd, capture_output=True, text=True,
+            cmd,
+            capture_output=True,
+            text=True,
             timeout=timeout + 30,
         )
 
         if result.stderr:
             logger.debug(f"[agent stderr] {result.stderr.strip()[:500]}")
         if result.returncode != 0:
-            raise RuntimeError(f"Agent command failed (rc={result.returncode}): {result.stderr.strip()[:500]}")
+            raise RuntimeError(
+                f"Agent command failed (rc={result.returncode}): {result.stderr.strip()[:500]}"
+            )
 
         # openclaw may write JSON to stderr (e.g. when runtime.log goes to stderr)
         # Fall back to stderr if stdout has no JSON
@@ -905,14 +944,21 @@ class TaskRunner:
         """Send /new to reset agent session context."""
         try:
             cmd = [
-                "openclaw", "agent",
-                "--agent", self.agent_id,
-                "--message", "/new",
+                "openclaw",
+                "agent",
+                "--agent",
+                self.agent_id,
+                "--message",
+                "/new",
                 "--json",
-                "--timeout", "90",
+                "--timeout",
+                "90",
             ]
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=120,
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,
             )
             if result.returncode == 0:
                 logger.info("Session reset: /new sent successfully")
@@ -943,7 +989,9 @@ class TaskRunner:
 
             # 4. Send to agent — use a fresh session-id per task to avoid stale context
             session_id = f"bench-{task.scenario}-{task.name}-{int(time.time())}"
-            logger.info(f"[{run_id}] Sending to agent (timeout={task.timeout_sec}s, session={session_id})...")
+            logger.info(
+                f"[{run_id}] Sending to agent (timeout={task.timeout_sec}s, session={session_id})..."
+            )
             effective_timeout = task.timeout_sec * self.timeout_multiplier
             if hasattr(self.backend, "send_to_agent"):
                 agent_result = self.backend.send_to_agent(
@@ -992,7 +1040,9 @@ class TaskRunner:
         except Exception as e:
             task_latency = time.time() - task_start
             logger.error(f"[{run_id}] Task error: {e}")
-            logger.info(f"[{run_id}] Result: FAIL (reward=0.0, latency={task_latency:.1f}s, tokens: in=0 out=0 cache_read=0)")
+            logger.info(
+                f"[{run_id}] Result: FAIL (reward=0.0, latency={task_latency:.1f}s, tokens: in=0 out=0 cache_read=0)"
+            )
             return TaskResult(
                 task_name=task.name,
                 scenario=task.scenario,
@@ -1057,6 +1107,7 @@ class TaskRunner:
 # ---------------------------------------------------------------------------
 # Result export
 # ---------------------------------------------------------------------------
+
 
 def export_results(suite: SuiteResult, output_path: Path) -> None:
     """Export results to JSON or Markdown."""

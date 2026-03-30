@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Setup workspace for filter-and-save task."""
+
 import os
 import sys
 
@@ -33,4 +34,4 @@ with open(csv_file, "w") as f:
 
 eng_count = sum(1 for e in employees[1:] if e[1] == "Engineering")
 print(f"Workspace ready: {workspace}")
-print(f"Created: {csv_file} ({len(employees)-1} employees, {eng_count} in Engineering)")
+print(f"Created: {csv_file} ({len(employees) - 1} employees, {eng_count} in Engineering)")

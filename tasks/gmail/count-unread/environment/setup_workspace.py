@@ -2,6 +2,7 @@
 """Setup workspace for count-unread task.
 Creates /workspace/inbox.txt with 8 emails, exactly 3 unread.
 """
+
 import os
 import sys
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Setup workspace for summarize-and-count task."""
+
 import os
 import sys
 

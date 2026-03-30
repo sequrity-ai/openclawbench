@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Minimal workspace setup for web-to-file task."""
+
 import os
 import sys
 

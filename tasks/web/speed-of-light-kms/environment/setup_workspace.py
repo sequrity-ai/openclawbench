@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Minimal workspace setup for speed-of-light-kms task."""
+
 import os
 import sys
 

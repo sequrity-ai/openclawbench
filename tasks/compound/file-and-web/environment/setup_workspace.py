@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Setup workspace for file-and-web task."""
+
 import os
 import sys
 

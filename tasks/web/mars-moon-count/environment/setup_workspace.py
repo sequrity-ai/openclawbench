@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Minimal workspace setup for mars-moon-count task."""
+
 import os
 import sys
 

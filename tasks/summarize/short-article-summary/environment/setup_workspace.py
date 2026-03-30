@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Setup workspace for short-article-summary task."""
+
 import os
 import sys
 

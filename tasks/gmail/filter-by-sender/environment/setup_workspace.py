@@ -2,6 +2,7 @@
 """Setup workspace for filter-by-sender task.
 Creates /workspace/inbox.txt with 10 emails, exactly 3 from notifications@github.com.
 """
+
 import os
 import sys
 

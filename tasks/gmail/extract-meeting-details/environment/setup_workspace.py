@@ -2,6 +2,7 @@
 """Setup workspace for extract-meeting-details task.
 Creates /workspace/meeting_invite.txt with a calendar invite email.
 """
+
 import os
 import sys
 

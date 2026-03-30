@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Setup workspace for multi-section-report task."""
+
 import os
 import sys
 

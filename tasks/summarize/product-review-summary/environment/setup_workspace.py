@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Setup workspace for product-review-summary task."""
+
 import os
 import sys
 

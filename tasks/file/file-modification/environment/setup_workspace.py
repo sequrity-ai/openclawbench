@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Create benchmark seed files in the workspace directory."""
+
 import json
 import sys
 from datetime import datetime, timedelta
@@ -55,7 +56,9 @@ for user in sample_data["users"]:
 # Log files
 logs_dir = workspace_dir / "logs"
 logs_dir.mkdir(exist_ok=True)
-(logs_dir / "app.log").write_text("INFO: Application started\nERROR: Connection failed\nWARN: Retry attempt 1\n" * 50)
+(logs_dir / "app.log").write_text(
+    "INFO: Application started\nERROR: Connection failed\nWARN: Retry attempt 1\n" * 50
+)
 (logs_dir / "error.log").write_text("ERROR: Database timeout\nERROR: Invalid query\n" * 100)
 api_logs = logs_dir / "api"
 api_logs.mkdir(exist_ok=True)
@@ -113,13 +116,18 @@ format = json
 104,Dave Brown,3,82000
 105,Eve Davis,2,88000
 """)
-(reports_dir / "departments.json").write_text(json.dumps({
-    "departments": [
-        {"id": 1, "name": "Engineering", "location": "Building A"},
-        {"id": 2, "name": "Design", "location": "Building B"},
-        {"id": 3, "name": "Marketing", "location": "Building C"},
-    ]
-}, indent=2))
+(reports_dir / "departments.json").write_text(
+    json.dumps(
+        {
+            "departments": [
+                {"id": 1, "name": "Engineering", "location": "Building A"},
+                {"id": 2, "name": "Design", "location": "Building B"},
+                {"id": 3, "name": "Marketing", "location": "Building C"},
+            ]
+        },
+        indent=2,
+    )
+)
 (reports_dir / "projects.xml").write_text("""<?xml version="1.0"?>
 <projects>
   <project><id>1</id><name>Website Redesign</name><dept_id>2</dept_id><budget>50000</budget></project>

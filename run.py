@@ -45,7 +45,9 @@ def _gateway_running() -> bool:
     try:
         result = subprocess.run(
             ["openclaw", "health"],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         return result.returncode == 0
     except subprocess.TimeoutExpired:
@@ -96,8 +98,9 @@ def setup_logging(verbose: bool = False) -> None:
     )
 
 
-def create_backend(backend_name: str, config: TelegramConfig,
-                    provider: str = "sequrity", model: str = "gpt-5.2"):
+def create_backend(
+    backend_name: str, config: TelegramConfig, provider: str = "sequrity", model: str = "gpt-5.2"
+):
     """Create the appropriate workspace backend."""
     if backend_name == "local":
         return LocalBackend(config.bot_workspace_path)
@@ -155,7 +158,8 @@ def verify_solutions(tasks: list[TaskSpec]) -> None:
         script = solve_sh.read_text().replace("/workspace", backend.workspace_path)
         subprocess.run(
             ["bash", "-c", script],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
 
         # Verify
@@ -184,7 +188,9 @@ async def run_bench(args, config: TelegramConfig) -> None:
             sys.exit(1)
         # Determine scenario from parent dir
         scenario_name = task_path.parent.name
-        tasks = discover_tasks(task_path.parent.parent, scenario=scenario_name, task_name=task_path.name)
+        tasks = discover_tasks(
+            task_path.parent.parent, scenario=scenario_name, task_name=task_path.name
+        )
     else:
         tasks = discover_tasks(
             TASKS_DIR,
@@ -200,7 +206,9 @@ async def run_bench(args, config: TelegramConfig) -> None:
     model = args.model or "gpt-5.2"
     scenario_label = args.scenario if not args.task else tasks[0].scenario
     model_label = f" ({provider}/{model})" if args.backend == "daytona" else ""
-    print(f"Running {len(tasks)} task(s) [{scenario_label}] with backend={args.backend}{model_label}")
+    print(
+        f"Running {len(tasks)} task(s) [{scenario_label}] with backend={args.backend}{model_label}"
+    )
     print("=" * 60)
 
     # Create backend and runner
@@ -245,54 +253,66 @@ async def run_bench(args, config: TelegramConfig) -> None:
 def main():
     parser = argparse.ArgumentParser(description="OpenClaw Benchmark Runner")
     parser.add_argument(
-        "--scenario", "-s",
+        "--scenario",
+        "-s",
         default="all",
         help="Scenario to run (file, weather, web, etc. or 'all')",
     )
     parser.add_argument(
-        "--all", action="store_true",
+        "--all",
+        action="store_true",
         help="Run all scenarios (equivalent to --scenario all)",
     )
     parser.add_argument(
-        "--backend", "-b",
+        "--backend",
+        "-b",
         choices=["local", "daytona"],
         default="local",
         help="Workspace backend (default: local)",
     )
     parser.add_argument(
-        "--difficulty", "-d",
+        "--difficulty",
+        "-d",
         choices=["easy", "medium", "hard", "all"],
         default="all",
         help="Filter tasks by difficulty",
     )
     parser.add_argument(
-        "--provider", "-p",
+        "--provider",
+        "-p",
         default=None,
         help="LLM provider for Daytona backend (e.g. sequrity, openai, anthropic, google). Default: sequrity",
     )
     parser.add_argument(
-        "--model", "-m",
+        "--model",
+        "-m",
         default=None,
         help="Model ID for Daytona backend (e.g. gpt-5.2, claude-sonnet-4-6, gpt-5.4). Default: gpt-5.2",
     )
     parser.add_argument(
-        "--task", "-t",
+        "--task",
+        "-t",
         help="Run a single task by path (e.g. tasks/file/file-organization)",
     )
     parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         help="Export results to file (JSON or Markdown)",
     )
     parser.add_argument(
-        "--list", action="store_true",
+        "--list",
+        action="store_true",
         help="List available tasks and exit",
     )
     parser.add_argument(
-        "--verify-only", action="store_true",
+        "--verify-only",
+        action="store_true",
         help="Verify reference solutions pass all tests",
     )
     parser.add_argument(
-        "-v", "--verbose", action="store_true",
+        "-v",
+        "--verbose",
+        action="store_true",
         help="Enable verbose logging",
     )
 

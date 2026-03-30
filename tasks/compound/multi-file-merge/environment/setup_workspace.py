@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Setup workspace for multi-file-merge task."""
+
 import os
 import sys
 

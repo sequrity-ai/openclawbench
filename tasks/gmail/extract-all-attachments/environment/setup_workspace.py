@@ -3,6 +3,7 @@
 Creates /workspace/inbox.txt with 6 emails, 3 with Attachments headers.
 Unique attachments: report.pdf, budget_2026.xlsx, logo.png, presentation.pptx
 """
+
 import os
 import sys
 

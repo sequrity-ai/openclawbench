@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Setup workspace for compare-two-documents task."""
+
 import os
 import sys
 
