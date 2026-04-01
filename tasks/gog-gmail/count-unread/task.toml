@@ -1,0 +1,21 @@
+version = "1.0"
+
+[metadata]
+author_name = "openclawbench"
+difficulty = "easy"
+category = "gog-gmail"
+tags = ["gmail", "email", "api", "easy"]
+
+[agent]
+timeout_sec = 180
+
+[verifier]
+timeout_sec = 60
+
+[environment]
+cpus = 1
+memory_mb = 512
+storage_mb = 1024
+allow_internet = true
+required_credentials = ["GOG_TEST_EMAIL"]
+optional_credentials = ["GOG_TOKEN_FILE"]

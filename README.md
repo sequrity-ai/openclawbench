@@ -65,7 +65,57 @@ uv run python run.py --all -o results.json
 | `summarize` | 9 | Document summarization, comparison, action item extraction |
 | `github` | 9 | GitHub public API: repo stats, languages, issues, stars |
 | `gmail` | 9 | Local email parsing: counting, filtering, extracting, summarizing |
+| `gog-gmail` | — | Real Gmail via [`gog`](https://github.com/steipete/gogcli) CLI (requires auth) |
 | `compound` | 9 | Multi-step tasks combining file operations + web fetching |
+
+## gog-gmail Setup (Real Gmail)
+
+The `gog-gmail` scenario interacts with a real Gmail account via the [`gog`](https://github.com/steipete/gogcli) CLI. Tasks send test emails, label them, and verify the agent can query Gmail correctly. All test data is cleaned up after each run.
+
+> **Use a dedicated test Gmail account**, not your personal inbox.
+
+### 1. Install gog
+
+```bash
+# macOS
+brew install steipete/tap/gogcli
+
+# Linux — download from GitHub releases
+curl -fsSL https://github.com/steipete/gogcli/releases/download/v0.12.0/gogcli_0.12.0_linux_amd64.tar.gz \
+  | tar xz -C /usr/local/bin gog
+```
+
+### 2. Authenticate
+
+Create OAuth credentials in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) (Desktop app type), download the JSON, then:
+
+```bash
+gog auth credentials /path/to/client_credentials.json
+gog auth login   # opens browser for OAuth consent
+```
+
+### 3. Run locally
+
+```bash
+export GOG_TEST_EMAIL="your-test@gmail.com"
+uv run python run.py --task tasks/gog-gmail/count-unread
+```
+
+### 4. Run on Daytona
+
+Sandboxes have no browser or OS keychain, so export your refresh token:
+
+```bash
+# One-time: export token file
+gog auth tokens export your-test@gmail.com --output ~/.gog-token.json
+
+# Run
+export GOG_TEST_EMAIL="your-test@gmail.com"
+export GOG_TOKEN_FILE=~/.gog-token.json
+uv run python run.py --backend daytona --task tasks/gog-gmail/count-unread --provider=openai --model=gpt-5.2
+```
+
+The runner uploads the `gog` binary and token into the sandbox automatically. `GOG_KEYRING_PASSWORD` and `GOG_ACCOUNT` are set by the runner — you don't need to export them.
 
 ## Configuration
 
@@ -92,6 +142,7 @@ openclawbench/
     ├── summarize/      # 9 summarization tasks
     ├── github/         # 9 GitHub API tasks
     ├── gmail/          # 9 email parsing tasks
+    ├── gog-gmail/      # Real Gmail tasks via gog CLI
     └── compound/       # 9 multi-step tasks
 ```
 

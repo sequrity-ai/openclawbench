@@ -198,6 +198,34 @@ class LocalBackend:
         else:
             logger.info(f"No setup script for task {task.name}")
 
+    def teardown_task(self, task: TaskSpec) -> None:
+        """Run the task's teardown script (e.g. to clean up external resources)."""
+        teardown_sh = task.path / "environment" / "teardown.sh"
+        teardown_py = task.path / "environment" / "teardown.py"
+
+        if teardown_sh.exists():
+            result = subprocess.run(
+                ["bash", str(teardown_sh), self.workspace_path],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode != 0:
+                logger.warning(f"Teardown failed: {result.stderr.strip()}")
+            else:
+                logger.info(f"Teardown complete: {teardown_sh}")
+        elif teardown_py.exists():
+            result = subprocess.run(
+                ["python3", str(teardown_py), self.workspace_path],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode != 0:
+                logger.warning(f"Teardown failed: {result.stderr.strip()}")
+            else:
+                logger.info(f"Teardown complete: {teardown_py}")
+
     def cleanup_workspace(self) -> None:
         if os.path.exists(self.workspace_path):
             shutil.rmtree(self.workspace_path)
@@ -488,6 +516,89 @@ class DaytonaBackend:
             logger.info(f"Sandbox created: {self._sandbox.id}")
             self._install_openclaw()
 
+    # Environment variables to forward from host into sandbox commands.
+    _FORWARDED_ENV_VARS = ["GOG_TEST_EMAIL", "GOG_KEYRING_PASSWORD", "GOG_ACCOUNT"]
+
+    def _env_prefix(self) -> str:
+        """Build an 'export K=V; ...' string for forwarded env vars."""
+        defaults = {
+            "GOG_KEYRING_PASSWORD": "openclawbench",
+            "GOG_ACCOUNT": os.environ.get("GOG_TEST_EMAIL", ""),
+        }
+        parts = []
+        for key in self._FORWARDED_ENV_VARS:
+            val = os.environ.get(key) or defaults.get(key)
+            if val:
+                escaped = val.replace("'", "'\\''")
+                parts.append(f"export {key}='{escaped}'")
+        return "; ".join(parts) + "; " if parts else ""
+
+    def _install_gog(self):
+        """Install the gog CLI and import auth token into the sandbox.
+
+        Requires GOG_TOKEN_FILE env var pointing to a token file exported via:
+            gog auth tokens export <email> --output ~/.gog-token.json
+        """
+        logger.info("Installing gog in sandbox...")
+        # Download linux binary on host, then upload to sandbox (faster than curl inside sandbox)
+        import io
+        import tarfile
+        import urllib.request
+
+        release_url = "https://github.com/steipete/gogcli/releases/download/v0.12.0/gogcli_0.12.0_linux_amd64.tar.gz"
+        cache_path = Path("/tmp/gog_linux_amd64")
+        if not cache_path.exists():
+            logger.info(f"Downloading gog from {release_url} ...")
+            with urllib.request.urlopen(release_url, timeout=60) as resp:
+                tar_bytes = resp.read()
+            with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:gz") as tar:
+                member = tar.getmember("gog")
+                f = tar.extractfile(member)
+                cache_path.write_bytes(f.read())
+            logger.info(f"Downloaded gog binary ({cache_path.stat().st_size} bytes)")
+        else:
+            logger.info("Using cached gog binary")
+
+        self._sandbox.fs.upload_file(cache_path.read_bytes(), "/usr/local/bin/gog")
+        self._sandbox.process.exec("chmod +x /usr/local/bin/gog")
+        r = self._sandbox.process.exec("gog --version")
+        logger.info(f"gog version: {r.result.strip()}")
+
+        # Import refresh token so gog can authenticate inside the sandbox.
+        # GOG_KEYRING_PASSWORD is needed because there's no OS keychain in the sandbox.
+        # GOG_ACCOUNT tells gog which account to use without --account flag.
+        keyring_pw = os.environ.get("GOG_KEYRING_PASSWORD", "openclawbench")
+        test_email = os.environ.get("GOG_TEST_EMAIL", "")
+
+        # Set these persistently in the sandbox's environment
+        self._sandbox.process.exec(
+            f'echo "export GOG_KEYRING_PASSWORD=\'{keyring_pw}\'" >> /root/.bashrc'
+        )
+        if test_email:
+            self._sandbox.process.exec(
+                f'echo "export GOG_ACCOUNT=\'{test_email}\'" >> /root/.bashrc'
+            )
+
+        env_cmd = f"export GOG_KEYRING_PASSWORD='{keyring_pw}'"
+        if test_email:
+            env_cmd += f" GOG_ACCOUNT='{test_email}'"
+
+        token_file = os.environ.get("GOG_TOKEN_FILE")
+        if token_file:
+            token_path = os.path.expanduser(token_file)
+            if os.path.exists(token_path):
+                with open(token_path, "rb") as f:
+                    self._sandbox.fs.upload_file(f.read(), "/tmp/gog-token.json")
+                r = self._sandbox.process.exec(
+                    f"bash -c '{env_cmd}; gog auth tokens import /tmp/gog-token.json'"
+                )
+                logger.info(f"gog token import: {r.result.strip()}")
+                self._sandbox.process.exec("rm /tmp/gog-token.json")
+            else:
+                logger.warning(f"GOG_TOKEN_FILE not found: {token_path}")
+        else:
+            logger.warning("GOG_TOKEN_FILE not set — gog commands in sandbox will fail")
+
     def _install_openclaw(self):
         """Install openclaw and write config inside the sandbox."""
         logger.info("Installing openclaw in sandbox...")
@@ -582,18 +693,53 @@ class DaytonaBackend:
     def setup_workspace(self, task: TaskSpec) -> None:
         self._ensure_sandbox()
 
+        # Install gog in sandbox if task requires it
+        if task.category and task.category.startswith("gog"):
+            self._install_gog()
+
+        env = self._env_prefix()
         setup_py = task.path / "environment" / "setup_workspace.py"
         setup_sh = task.path / "environment" / "setup.sh"
 
         if setup_py.exists():
             with open(setup_py, "rb") as f:
                 self._sandbox.fs.upload_file(f.read(), "/tmp/setup_workspace.py")
-            r = self._sandbox.process.exec(f"python3 /tmp/setup_workspace.py {self.workspace_path}")
+            r = self._sandbox.process.exec(
+                f"bash -c '{env}python3 /tmp/setup_workspace.py {self.workspace_path}'",
+                timeout=180,
+            )
             logger.info(f"Setup: {r.result.strip()}")
         elif setup_sh.exists():
             with open(setup_sh, "rb") as f:
                 self._sandbox.fs.upload_file(f.read(), "/tmp/setup.sh")
-            self._sandbox.process.exec(f"bash /tmp/setup.sh {self.workspace_path}")
+            self._sandbox.process.exec(
+                f"bash -c '{env}bash /tmp/setup.sh {self.workspace_path}'",
+                timeout=180,
+            )
+
+    def teardown_task(self, task: TaskSpec) -> None:
+        """Run the task's teardown script inside the sandbox."""
+        self._ensure_sandbox()
+        env = self._env_prefix()
+        teardown_sh = task.path / "environment" / "teardown.sh"
+        teardown_py = task.path / "environment" / "teardown.py"
+
+        if teardown_sh.exists():
+            with open(teardown_sh, "rb") as f:
+                self._sandbox.fs.upload_file(f.read(), "/tmp/teardown.sh")
+            r = self._sandbox.process.exec(
+                f"bash -c '{env}bash /tmp/teardown.sh {self.workspace_path}'",
+                timeout=120,
+            )
+            logger.info(f"Teardown: {r.result.strip()}")
+        elif teardown_py.exists():
+            with open(teardown_py, "rb") as f:
+                self._sandbox.fs.upload_file(f.read(), "/tmp/teardown.py")
+            r = self._sandbox.process.exec(
+                f"bash -c '{env}python3 /tmp/teardown.py {self.workspace_path}'",
+                timeout=120,
+            )
+            logger.info(f"Teardown: {r.result.strip()}")
 
     def cleanup_workspace(self) -> None:
         """Clean workspace directory inside the sandbox (keeps sandbox alive)."""
@@ -1073,6 +1219,13 @@ class TaskRunner:
 
             result = await self.run_task(task)
             results.append(result)
+
+            # Run teardown (clean up external resources like Gmail, APIs, etc.)
+            if hasattr(self.backend, "teardown_task"):
+                try:
+                    self.backend.teardown_task(task)
+                except Exception as e:
+                    logger.warning(f"Teardown failed for {task.name}: {e}")
 
             # Cleanup workspace between tasks
             self.backend.cleanup_workspace()
