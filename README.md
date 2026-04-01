@@ -1,6 +1,6 @@
 # OpenClaw Benchmark
 
-A benchmark suite for evaluating OpenClaw agent performance across 7 scenarios and 63 tasks.
+A benchmark suite for evaluating OpenClaw agent performance across 8 scenarios and 69 tasks.
 
 ## How It Works
 
@@ -40,6 +40,7 @@ uv run python run.py --scenario web
 uv run python run.py --scenario summarize
 uv run python run.py --scenario github
 uv run python run.py --scenario gmail
+uv run python run.py --scenario gog-gmail
 uv run python run.py --scenario compound
 
 # Run a single task
@@ -65,7 +66,7 @@ uv run python run.py --all -o results.json
 | `summarize` | 9 | Document summarization, comparison, action item extraction |
 | `github` | 9 | GitHub public API: repo stats, languages, issues, stars |
 | `gmail` | 9 | Local email parsing: counting, filtering, extracting, summarizing |
-| `gog-gmail` | — | Real Gmail via [`gog`](https://github.com/steipete/gogcli) CLI (requires auth) |
+| `gog-gmail` | 6 | Real Gmail via [`gog`](https://github.com/steipete/gogcli) CLI (requires auth) |
 | `compound` | 9 | Multi-step tasks combining file operations + web fetching |
 
 ## gog-gmail Setup (Real Gmail)
@@ -152,7 +153,7 @@ openclawbench/
     ├── summarize/      # 9 summarization tasks
     ├── github/         # 9 GitHub API tasks
     ├── gmail/          # 9 email parsing tasks
-    ├── gog-gmail/      # Real Gmail tasks via gog CLI
+    ├── gog-gmail/      # 6 Real Gmail tasks via gog CLI
     └── compound/       # 9 multi-step tasks
 ```
 
