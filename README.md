@@ -136,6 +136,8 @@ Configuration via `.env` or environment variables:
 AGENT_ID=main               # OpenClaw agent to use (default: main)
 TIMEOUT_MULTIPLIER=1.0      # Scale all timeouts (use >1 on slow machines)
 BOT_WORKSPACE_PATH=/tmp/openclaw_benchmark  # Local workspace path
+OPENAI_API_KEY=sk-...       # Required for --provider openai
+ANTHROPIC_API_KEY=sk-ant-...  # Required for --provider anthropic
 ```
 
 ## Project Structure
