@@ -564,7 +564,7 @@ class DaytonaBackend:
         r = self._sandbox.process.exec("gog --version")
         logger.info(f"gog version: {r.result.strip()}")
 
-        # Import refresh token so gog can authenticate inside the sandbox.
+        # Import OAuth client credentials + refresh token into the sandbox.
         # GOG_KEYRING_PASSWORD is needed because there's no OS keychain in the sandbox.
         # GOG_ACCOUNT tells gog which account to use without --account flag.
         keyring_pw = os.environ.get("GOG_KEYRING_PASSWORD", "openclawbench")
@@ -583,21 +583,32 @@ class DaytonaBackend:
         if test_email:
             env_cmd += f" GOG_ACCOUNT='{test_email}'"
 
-        token_file = os.environ.get("GOG_TOKEN_FILE")
-        if token_file:
-            token_path = os.path.expanduser(token_file)
-            if os.path.exists(token_path):
-                with open(token_path, "rb") as f:
-                    self._sandbox.fs.upload_file(f.read(), "/tmp/gog-token.json")
-                r = self._sandbox.process.exec(
-                    f"bash -c '{env_cmd}; gog auth tokens import /tmp/gog-token.json'"
-                )
-                logger.info(f"gog token import: {r.result.strip()}")
-                self._sandbox.process.exec("rm /tmp/gog-token.json")
-            else:
-                logger.warning(f"GOG_TOKEN_FILE not found: {token_path}")
+        # Upload OAuth client credentials JSON (client ID + secret).
+        # gog needs this to exchange refresh tokens for access tokens.
+        creds_file = os.environ.get("GOG_CREDENTIALS_FILE", os.path.expanduser("~/.config/gogcli/credentials.json"))
+        creds_path = os.path.expanduser(creds_file)
+        if os.path.exists(creds_path):
+            self._sandbox.process.exec("mkdir -p /root/.config/gogcli")
+            with open(creds_path, "rb") as f:
+                self._sandbox.fs.upload_file(f.read(), "/root/.config/gogcli/credentials.json")
+            logger.info("Uploaded OAuth client credentials to sandbox")
         else:
-            logger.warning("GOG_TOKEN_FILE not set — gog commands in sandbox will fail")
+            raise RuntimeError(f"OAuth credentials not found at {creds_path}")
+
+        # Upload and import refresh token
+        token_file = os.environ.get("GOG_TOKEN_FILE")
+        if not token_file:
+            raise RuntimeError("GOG_TOKEN_FILE is not set")
+        token_path = os.path.expanduser(token_file)
+        if not os.path.exists(token_path):
+            raise RuntimeError(f"GOG_TOKEN_FILE not found: {token_path}")
+        with open(token_path, "rb") as f:
+            self._sandbox.fs.upload_file(f.read(), "/tmp/gog-token.json")
+        r = self._sandbox.process.exec(
+            f"bash -c '{env_cmd}; gog auth tokens import /tmp/gog-token.json'"
+        )
+        logger.info(f"gog token import: {r.result.strip()}")
+        self._sandbox.process.exec("rm /tmp/gog-token.json")
 
     def _install_openclaw(self):
         """Install openclaw and write config inside the sandbox."""
@@ -1200,12 +1211,66 @@ class TaskRunner:
                 error_message=str(e),
             )
 
+    def _preflight_check(self, tasks: list[TaskSpec]) -> None:
+        """Validate environment before running tasks. Raises RuntimeError on failure."""
+        has_gog_tasks = any(
+            t.category and t.category.startswith("gog") for t in tasks
+        )
+        if not has_gog_tasks:
+            return
+
+        errors = []
+
+        # GOG_TEST_EMAIL is always required
+        if not os.environ.get("GOG_TEST_EMAIL"):
+            errors.append("GOG_TEST_EMAIL is not set. Set it to the Gmail address for test emails.")
+
+        # Local backend: gog must be on PATH and authenticated
+        if isinstance(self.backend, LocalBackend):
+            if not shutil.which("gog"):
+                errors.append(
+                    "gog CLI not found on PATH. Install it:\n"
+                    "  macOS: brew install steipete/tap/gogcli\n"
+                    "  Linux: see https://github.com/steipete/gogcli/releases"
+                )
+
+        # Daytona backend: need token file and credentials
+        if isinstance(self.backend, DaytonaBackend):
+            token_file = os.environ.get("GOG_TOKEN_FILE")
+            if not token_file:
+                errors.append(
+                    "GOG_TOKEN_FILE is not set. Export your refresh token first:\n"
+                    "  gog auth tokens export <email> --output ~/.gog-token.json\n"
+                    "  export GOG_TOKEN_FILE=~/.gog-token.json"
+                )
+            elif not os.path.exists(os.path.expanduser(token_file)):
+                errors.append(f"GOG_TOKEN_FILE points to a missing file: {token_file}")
+
+            creds_file = os.environ.get(
+                "GOG_CREDENTIALS_FILE",
+                os.path.expanduser("~/.config/gogcli/credentials.json"),
+            )
+            if not os.path.exists(os.path.expanduser(creds_file)):
+                errors.append(
+                    f"OAuth client credentials not found at {creds_file}.\n"
+                    "  Download from Google Cloud Console and run:\n"
+                    "  gog auth credentials /path/to/client_secret_XXXXX.json"
+                )
+
+        if errors:
+            msg = "gog-gmail pre-flight check failed:\n\n" + "\n\n".join(
+                f"  [{i+1}] {e}" for i, e in enumerate(errors)
+            )
+            raise RuntimeError(msg)
+
     async def run_suite(
         self,
         tasks: list[TaskSpec],
         scenario_name: str = "all",
     ) -> SuiteResult:
         """Run a suite of tasks sequentially."""
+        self._preflight_check(tasks)
+
         start_time = time.time()
         results = []
 

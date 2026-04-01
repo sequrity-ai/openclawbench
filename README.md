@@ -74,48 +74,58 @@ The `gog-gmail` scenario interacts with a real Gmail account via the [`gog`](htt
 
 > **Use a dedicated test Gmail account**, not your personal inbox.
 
-### 1. Install gog
+### Prerequisites
 
-```bash
-# macOS
-brew install steipete/tap/gogcli
+1. **Install gog**
 
-# Linux — download from GitHub releases
-curl -fsSL https://github.com/steipete/gogcli/releases/download/v0.12.0/gogcli_0.12.0_linux_amd64.tar.gz \
-  | tar xz -C /usr/local/bin gog
-```
+   ```bash
+   # macOS
+   brew install steipete/tap/gogcli
 
-### 2. Authenticate
+   # Linux — download from GitHub releases
+   curl -fsSL https://github.com/steipete/gogcli/releases/download/v0.12.0/gogcli_0.12.0_linux_amd64.tar.gz \
+     | tar xz -C /usr/local/bin gog
+   ```
 
-Create OAuth credentials in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) (Desktop app type), download the JSON, then:
+2. **Create OAuth credentials** in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → Create Credentials → OAuth client ID → Desktop app → Download JSON.
 
-```bash
-gog auth credentials /path/to/client_credentials.json
-gog auth login   # opens browser for OAuth consent
-```
+3. **Authenticate gog**
 
-### 3. Run locally
+   ```bash
+   gog auth credentials ~/Downloads/client_secret_XXXXX.json
+   gog auth login   # opens browser for OAuth consent
+   ```
+
+4. **Export refresh token** (needed for Daytona backend)
+
+   ```bash
+   gog auth tokens export your-test@gmail.com --output ~/.gog-token.json
+   ```
+
+### Environment variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GOG_TEST_EMAIL` | Yes | Gmail address to send test emails to |
+| `GOG_TOKEN_FILE` | Daytona only | Path to exported refresh token (`~/.gog-token.json`) |
+| `GOG_CREDENTIALS_FILE` | No | Path to OAuth client credentials (default: `~/.config/gogcli/credentials.json`) |
+
+### Run locally
 
 ```bash
 export GOG_TEST_EMAIL="your-test@gmail.com"
 uv run python run.py --task tasks/gog-gmail/count-unread
 ```
 
-### 4. Run on Daytona
-
-Sandboxes have no browser or OS keychain, so export your refresh token:
+### Run on Daytona
 
 ```bash
-# One-time: export token file
-gog auth tokens export your-test@gmail.com --output ~/.gog-token.json
-
-# Run
 export GOG_TEST_EMAIL="your-test@gmail.com"
 export GOG_TOKEN_FILE=~/.gog-token.json
 uv run python run.py --backend daytona --task tasks/gog-gmail/count-unread --provider=openai --model=gpt-5.2
 ```
 
-The runner uploads the `gog` binary and token into the sandbox automatically. `GOG_KEYRING_PASSWORD` and `GOG_ACCOUNT` are set by the runner — you don't need to export them.
+The runner automatically uploads the `gog` binary, OAuth credentials, and refresh token into the sandbox.
 
 ## Configuration
 
