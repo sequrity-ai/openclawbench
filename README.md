@@ -147,6 +147,23 @@ The `gog-gmail` scenario interacts with a real Gmail account via the [`gog`](htt
 
 > **Use a dedicated test Gmail account**, not your personal inbox.
 
+### Parallel runs and isolation
+
+Each run creates a unique Gmail label (`openclawbench-{uuid}`) and scopes all operations — send, search, verify, cleanup — to that label. This means **parallel CI runs against the same Gmail account are safe** and won't interfere with each other.
+
+**Caveats for parallel sweeps:**
+
+- **Gmail API rate limits** — if you sweep many models in parallel (5+), all hitting the same Gmail account, you may get 429 (rate limit) errors from the Gmail API. Consider staggering gog-gmail runs or using `--timeout-multiplier` to give retries more headroom.
+- **Orphaned test data on crash** — if a CI run is killed before teardown (e.g., workflow timeout), test emails and labels remain in the mailbox. Add a periodic cleanup step to your CI:
+  ```bash
+  # Clean up any leftover openclawbench labels and their messages
+  gog gmail labels list | grep openclawbench- | while read label; do
+    gog gmail messages list --label "$label" --format json | \
+      jq -r '.[].id' | xargs -I{} gog gmail trash {}
+    gog gmail labels delete "$label"
+  done
+  ```
+
 ### Prerequisites
 
 1. **Install gog**
