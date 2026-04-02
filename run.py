@@ -20,6 +20,13 @@ import sys
 import time
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# Load .env into os.environ for variables not modeled in BenchmarkConfig
+# (e.g. GOG_TEST_EMAIL, GOG_TOKEN_FILE, provider API keys).
+# override=False ensures real env vars (from CI) take precedence over .env.
+load_dotenv(override=False)
+
 from config import BenchmarkConfig, load_config
 from task_runner import (
     DaytonaBackend,
