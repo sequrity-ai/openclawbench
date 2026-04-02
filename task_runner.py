@@ -390,12 +390,13 @@ class DaytonaBackend:
         }
 
     @classmethod
-    def _build_openclaw_config(cls, provider: str, model: str) -> dict:
+    def _build_openclaw_config(cls, provider: str, model: str, gateway_port: int = 18789) -> dict:
         """Build openclaw config for the sandbox.
 
         Args:
             provider: Provider name (e.g. "sequrity", "openai", "anthropic").
             model: Model ID (e.g. "gpt-5.2", "claude-sonnet-4-6", "gpt-5.4").
+            gateway_port: Port for the openclaw gateway inside the sandbox.
         """
         # --- provider-specific models block ---
         providers_block: dict[str, Any] = {}
@@ -470,7 +471,7 @@ class DaytonaBackend:
                 "exec": {"host": "gateway", "security": "full", "ask": "off"},
             },
             "gateway": {
-                "port": 18789,
+                "port": gateway_port,
                 "mode": "local",
                 "bind": "loopback",
                 "auth": {"mode": "token", "token": "sandbox_bench_token"},
@@ -485,6 +486,7 @@ class DaytonaBackend:
         workspace_path: str = "/workspace",
         provider: str = "sequrity",
         model: str = "gpt-5.2",
+        gateway_port: int = 18789,
     ):
         self.api_key = api_key
         self.api_url = api_url
@@ -492,6 +494,7 @@ class DaytonaBackend:
         self.workspace_path = workspace_path
         self.provider = provider
         self.model = model
+        self.gateway_port = gateway_port
         self._daytona = None
         self._sandbox = None
         self._gog_installed = False
@@ -564,10 +567,11 @@ class DaytonaBackend:
         # Download linux binary on host, then upload to sandbox (faster than curl inside sandbox)
         import io
         import tarfile
+        import tempfile
         import urllib.request
 
         release_url = "https://github.com/steipete/gogcli/releases/download/v0.12.0/gogcli_0.12.0_linux_amd64.tar.gz"
-        cache_path = Path("/tmp/gog_linux_amd64")
+        cache_path = Path(tempfile.gettempdir()) / "gog_linux_amd64"
         if not cache_path.exists():
             logger.info(f"Downloading gog from {release_url} ...")
             with urllib.request.urlopen(release_url, timeout=60) as resp:
@@ -650,7 +654,9 @@ class DaytonaBackend:
         )
 
         # Write openclaw config
-        config_json = json.dumps(self._build_openclaw_config(self.provider, self.model), indent=2)
+        config_json = json.dumps(
+            self._build_openclaw_config(self.provider, self.model, self.gateway_port), indent=2
+        )
         self._sandbox.process.exec("mkdir -p /root/.openclaw")
         self._sandbox.fs.upload_file(
             config_json.encode("utf-8"),
@@ -1242,7 +1248,7 @@ class TaskRunner:
 
         except Exception as e:
             task_latency = time.time() - task_start
-            logger.error(f"[{run_id}] Task error: {e}")
+            logger.error(f"[{run_id}] Task error: {e}", exc_info=True)
             logger.info(
                 f"[{run_id}] Result: FAIL (reward=0.0, latency={task_latency:.1f}s, tokens: in=0 out=0 cache_read=0)"
             )
@@ -1323,30 +1329,34 @@ class TaskRunner:
         start_time = time.time()
         results = []
 
-        for i, task in enumerate(tasks, 1):
-            logger.info(f"===== Task {i}/{len(tasks)}: {task.scenario}/{task.name} =====")
+        try:
+            for i, task in enumerate(tasks, 1):
+                logger.info(f"===== Task {i}/{len(tasks)}: {task.scenario}/{task.name} =====")
 
-            # Wait between tasks for session lock release
-            if i > 1:
-                logger.info("Waiting 3s for session lock release...")
-                await asyncio.sleep(3)
+                # Wait between tasks for session lock release
+                if i > 1:
+                    logger.info("Waiting 3s for session lock release...")
+                    await asyncio.sleep(3)
 
-            result = await self.run_task(task)
-            results.append(result)
+                result = await self.run_task(task)
+                results.append(result)
 
-            # Run teardown (clean up external resources like Gmail, APIs, etc.)
-            if hasattr(self.backend, "teardown_task"):
+                # Run teardown (clean up external resources like Gmail, APIs, etc.)
+                if hasattr(self.backend, "teardown_task"):
+                    try:
+                        self.backend.teardown_task(task)
+                    except Exception as e:
+                        logger.warning(f"Teardown failed for {task.name}: {e}")
+
+                # Cleanup workspace between tasks
+                self.backend.cleanup_workspace()
+        finally:
+            # Always destroy sandbox, even on unexpected errors
+            if hasattr(self.backend, "destroy"):
                 try:
-                    self.backend.teardown_task(task)
+                    self.backend.destroy()
                 except Exception as e:
-                    logger.warning(f"Teardown failed for {task.name}: {e}")
-
-            # Cleanup workspace between tasks
-            self.backend.cleanup_workspace()
-
-        # Destroy sandbox if using Daytona
-        if hasattr(self.backend, "destroy"):
-            self.backend.destroy()
+                    logger.error(f"Failed to destroy sandbox during cleanup: {e}")
 
         end_time = time.time()
 

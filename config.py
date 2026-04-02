@@ -1,5 +1,8 @@
 """Configuration for the OpenClaw benchmark runner."""
 
+import os
+import tempfile
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -14,7 +17,7 @@ class BenchmarkConfig(BaseSettings):
 
     # Local backend
     bot_workspace_path: str = Field(
-        default="/tmp/openclaw_benchmark",
+        default_factory=lambda: os.path.join(tempfile.gettempdir(), "openclaw_benchmark"),
         description="Local workspace path for benchmark tasks",
     )
 
@@ -26,6 +29,12 @@ class BenchmarkConfig(BaseSettings):
     timeout_multiplier: float = Field(
         default=1.0,
         description="Multiply all task timeouts by this factor",
+    )
+
+    # Gateway
+    gateway_port: int = Field(
+        default=18789,
+        description="openclaw gateway port",
     )
 
     # Daytona sandbox backend (optional)
@@ -40,9 +49,10 @@ class BenchmarkConfig(BaseSettings):
     )
 
 
-# Alias for run.py import compatibility
-TelegramConfig = BenchmarkConfig
-
-
-def load_config() -> BenchmarkConfig:
-    return BenchmarkConfig()
+def load_config(**cli_overrides) -> BenchmarkConfig:
+    """Load config from env/.env, then apply CLI overrides."""
+    cfg = BenchmarkConfig()
+    filtered = {k: v for k, v in cli_overrides.items() if v is not None}
+    if filtered:
+        cfg = cfg.model_copy(update=filtered)
+    return cfg

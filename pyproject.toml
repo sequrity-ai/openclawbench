@@ -1,21 +1,16 @@
 [project]
-name = "openclaw-telegram-client"
+name = "openclawbench"
 version = "0.1.0"
-description = "Telegram client for OpenClaw bot benchmarking"
+description = "Benchmark runner for evaluating LLM agents via OpenClaw"
 requires-python = ">=3.13"
 dependencies = [
-    "pyrogram>=2.0.0",
-    "tgcrypto>=1.2.0",
     "aiohttp>=3.9.0",
     "requests>=2.31.0",
-    "python-dotenv>=1.0.0",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
-    "pydantic-ai>=1.59.0",
     "paramiko>=4.0.0",
     "google-auth-oauthlib>=1.2.4",
     "google-auth-httplib2>=0.3.0",
-    "tavily-python>=0.7.21",
     "daytona-sdk>=0.149.0",
 ]
 
@@ -28,7 +23,7 @@ dev = [
 ]
 
 [project.scripts]
-openclaw-tg = "cli:main"
+openclawbench = "run:main"
 
 [build-system]
 requires = ["hatchling"]
