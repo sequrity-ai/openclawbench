@@ -128,6 +128,45 @@ Key CI behaviors:
 - **Env var precedence** — CI secrets override `.env` file values
 - **Structured output** — `--output results.json` produces machine-readable results
 
+### Aggregating results across matrix jobs
+
+Each result JSON includes a `summary` block with run metadata, designed for easy aggregation:
+
+```json
+{
+  "summary": {
+    "provider": "openrouter",
+    "model": "anthropic/claude-sonnet-4",
+    "backend": "daytona",
+    "scenario": "file",
+    "difficulty": "all",
+    "total_tasks": 9,
+    "tasks_passed": 7,
+    "tasks_failed": 2,
+    "overall_accuracy": 77.8,
+    "average_latency": 12.3,
+    "total_tokens": 45000
+  }
+}
+```
+
+To build a comparison table from matrix job artifacts:
+
+```bash
+# Merge all result files into a single summary table
+jq -s '[.[].summary] | sort_by(.provider, .model, .scenario)
+  | .[] | [.provider, .model, .scenario, .tasks_passed, .total_tasks, .overall_accuracy]
+  | @tsv' results-*.json
+```
+
+| Field | Use |
+|-------|-----|
+| `summary.provider` + `summary.model` | Group by model under test |
+| `summary.scenario` | Group by scenario |
+| `summary.overall_accuracy` | Primary metric for comparison |
+| `summary.average_latency` | Performance metric |
+| `summary.total_tokens` | Cost metric |
+
 ## Scenarios
 
 | Scenario | Tasks | What It Tests |

@@ -256,6 +256,14 @@ async def run_bench(args, config: BenchmarkConfig) -> "SuiteResult":
     finally:
         _active_backend = None
 
+    # Attach run metadata for aggregation across CI matrix jobs
+    suite.metadata = {
+        "provider": provider,
+        "model": model,
+        "backend": args.backend,
+        "difficulty": args.difficulty or "all",
+    }
+
     # Print summary
     print("\n" + "=" * 60)
     print("RESULTS")

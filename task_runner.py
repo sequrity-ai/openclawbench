@@ -1390,8 +1390,13 @@ def export_results(suite: SuiteResult, output_path: Path) -> None:
     """Export results to JSON or Markdown."""
     data = suite.to_dict()
 
-    # Add summary
+    # Add summary with run metadata for easy aggregation across CI matrix jobs
     data["summary"] = {
+        "provider": suite.metadata.get("provider", ""),
+        "model": suite.metadata.get("model", ""),
+        "backend": suite.metadata.get("backend", ""),
+        "scenario": suite.scenario_name,
+        "difficulty": suite.metadata.get("difficulty", "all"),
         "total_tasks": len(suite.task_results),
         "tasks_passed": sum(1 for t in suite.task_results if t.success),
         "tasks_failed": sum(1 for t in suite.task_results if not t.success),
@@ -1416,13 +1421,19 @@ def export_results(suite: SuiteResult, output_path: Path) -> None:
 
 def _export_markdown(data: dict, output_path: Path) -> None:
     """Export results as a Markdown report."""
+    summary = data["summary"]
+    provider = summary.get("provider", "")
+    model = summary.get("model", "")
+    model_label = f" — {provider}/{model}" if provider else ""
     lines = [
-        f"# Benchmark Results: {data['scenario_name']}",
+        f"# Benchmark Results: {data['scenario_name']}{model_label}",
         "",
+        f"**Provider**: {provider}/{model}" if provider else "",
+        f"**Backend**: {summary.get('backend', '')}",
         f"**Duration**: {data['total_duration']:.1f}s",
-        f"**Tasks**: {data['summary']['tasks_passed']}/{data['summary']['total_tasks']} passed",
-        f"**Accuracy**: {data['summary']['overall_accuracy']:.1f}%",
-        f"**Total Tokens**: {data['summary']['total_tokens']}",
+        f"**Tasks**: {summary['tasks_passed']}/{summary['total_tasks']} passed",
+        f"**Accuracy**: {summary['overall_accuracy']:.1f}%",
+        f"**Total Tokens**: {summary['total_tokens']}",
         "",
         "## Results",
         "",
